@@ -1,0 +1,19 @@
+{
+  "editor.formatOnSave": true,
+
+  //"C_Cpp.intelliSenseEngine": "disabled",
+  "C_Cpp.formatting": "clangFormat",
+  "C_Cpp.clang_format_style": "file",
+  //"C_Cpp.errorSquiggles": "disabled",
+
+  "C_Cpp.codeAnalysis.clangTidy.enabled": true,
+  //"C_Cpp.codeAnalysis.runAutomatically": true,
+
+  "files.exclude": {
+    "**/.pio": true
+  },
+  "C_Cpp.clang_format_sortIncludes": true,
+  "C_Cpp.codeAnalysis.clangTidy.checks.disabled": [
+    "cppcoreguidelines-use-enum-class"
+  ]
+}

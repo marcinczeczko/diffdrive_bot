@@ -1,0 +1,13 @@
+CompileFlags:
+  Add:
+    - -std=gnu++20
+
+Diagnostics:
+  Suppress:
+    - clang-diagnostic-unknown-attributes
+    - clang-diagnostic-pp-file-not-found
+    - clang-diagnostic-unused-parameter
+    - clang-diagnostic-ignored-attributes
+
+Index:
+  Background: Build

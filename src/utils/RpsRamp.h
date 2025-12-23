@@ -1,0 +1,114 @@
+#ifndef RPS_RAMP_H_
+#define RPS_RAMP_H_
+
+#include "config/Config.h"
+
+#include <Arduino.h>
+#include <math.h>
+
+class RpsRamp
+{
+  public:
+    void reset()
+    {
+        current = 0.0F;
+        velocity = 0.0F;
+        accel = 0.0F;
+    }
+
+#ifdef RPS_RAMP_NONE
+    float update(float target, float dt) const
+    {
+        return target;
+    }
+#endif
+
+#ifdef RPS_RAMP_LINEAR
+    float update(float target, float dt)
+    {
+        float maxStep = RPS_RAMP_MAX_ACCEL * dt;
+        float diff = target - current;
+
+        if (fabs(diff) <= maxStep)
+        {
+            current = target;
+        }
+        else
+        {
+            current += (diff > 0 ? maxStep : -maxStep);
+        }
+
+        return current;
+    }
+#endif
+
+#ifdef RPS_RAMP_SCURVE
+    float update(float targetVelocity, float dt)
+    {
+        // 1. STREFA MARTWA (Snap-to-Zero)
+        // Jeśli cel to 0 i jesteśmy już bardzo blisko, zatrzymaj natychmiast
+        const float STOP_THRESHOLD = 0.1f; // [rps] ok. 1.2 RPM
+        if (targetVelocity == 0.0f && fabs(velocity) < STOP_THRESHOLD)
+        {
+            velocity = 0.0f;
+            accel = 0.0f;
+            return 0.0f;
+        }
+
+        // 2. OBLICZANIE POŻĄDANEGO PRZYSPIESZENIA
+        float desiredAccel = (targetVelocity - velocity) / dt;
+
+        // 3. DYNAMICZNY JERK
+        // Jeśli hamujemy do zera, możemy pozwolić na nieco większy Jerk,
+        // aby uniknąć "pływania" wokół zera.
+        float currentMaxJerk = RPS_RAMP_MAX_JERK;
+        if (targetVelocity == 0.0f)
+        {
+            currentMaxJerk *= 1.5f; // Agresywniejsze wygaszanie przy stopie
+        }
+
+        // 4. OGRANICZENIE ZMIANY PRZYSPIESZENIA (JERK)
+        float accelDiff = desiredAccel - accel;
+        float maxAccelStep = currentMaxJerk * dt;
+
+        if (fabs(accelDiff) > maxAccelStep)
+        {
+            accel += (accelDiff > 0 ? maxAccelStep : -maxAccelStep);
+        }
+        else
+        {
+            accel = desiredAccel;
+        }
+
+        // 5. OGRANICZENIE MAX PRZYSPIESZENIA
+        if (accel > RPS_RAMP_MAX_ACCEL)
+            accel = RPS_RAMP_MAX_ACCEL;
+        if (accel < -RPS_RAMP_MAX_ACCEL)
+            accel = -RPS_RAMP_MAX_ACCEL;
+
+        // 6. CAŁKOWANIE DO PRĘDKOŚCI
+        float nextVelocity = velocity + (accel * dt);
+
+        // 7. ZABEZPIECZENIE PRZED ZMIANĄ ZNAKU (Oscylacje przy zerze)
+        // Jeśli właśnie mieliśmy się zatrzymać, a znak prędkości ma się odwrócić
+        if (targetVelocity == 0.0f && (nextVelocity * velocity < 0))
+        {
+            velocity = 0.0f;
+            accel = 0.0f;
+        }
+        else
+        {
+            velocity = nextVelocity;
+        }
+
+        return velocity;
+    }
+#endif
+
+  private:
+    float current = 0.0F;
+    float velocity = 0.0F; // used only by S-curve
+    float accel = 0.0F;    // used only by S-curve
+};
+
+#endif

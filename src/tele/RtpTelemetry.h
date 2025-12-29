@@ -6,34 +6,59 @@
 
 namespace Rtp
 {
-constexpr configSTACK_DEPTH_TYPE kStackDepth = 512;
-constexpr uint8_t kStartOfFrame = 0xAA;
+constexpr configSTACK_DEPTH_TYPE kStackDepth = 256;
+constexpr uint16_t kMagic = 0xAA55;
+constexpr uint8_t kMagic_0 = 0xAA;
+constexpr uint8_t kMagic_1 = 0x55;
 constexpr uint8_t kVersion = 0x01;
 constexpr std::size_t kMaxPayload = 64; // TBD
 
-enum class RtpType : uint8_t
-{
-    PID = 0x01
-};
+using RtpType = uint8_t;
 
-#pragma pack(push, 1)
+constexpr RtpType RTP_PID = 0x01;
+constexpr RtpType RTP_CTRL = 0x02;
+constexpr RtpType RTP_ODOM = 0x03;
+constexpr RtpType RTP_IMU = 0x04;
+
+// #pragma pack(push, 1)
+// struct RtpHeader
+// {
+//     uint16_t magic;
+//     RtpType type;
+//     uint8_t length;
+//     uint8_t headerCrc;
+// };
+// #pragma pack(pop)
+
 struct RtpHeader
 {
-    uint8_t startOfFrame;
-    uint8_t version;
-    RtpType type;
-    uint8_t flags;
-    uint8_t length;
-};
-#pragma pack(pop)
+    uint8_t magic[2];
+    uint8_t type;
+    uint8_t len;
+    uint8_t crc;
+} __attribute__((packed));
 
+static_assert(sizeof(RtpType) == 1, "RtpType must be 1 byte");
+static_assert(sizeof(RtpHeader) == 5, "RtpHeader layout broken");
 class RtpTelemetry
 {
   public:
     RtpTelemetry() = default;
 
     void begin();
-    void publish(RtpType type, const void* payload, uint8_t len);
+
+    // This will assure that the only way to use it is
+    // PidPayload payload{ ... }; telemetry.publish(RTP_PID, payload);
+    // So no references or pointers to payload to avoid any data consistency issues
+    template <typename T> void publish(uint8_t type, const T& payload)
+    {
+        static_assert(std::is_trivially_copyable<T>::value,
+                      "Telemetry payload must be trivially copyable");
+
+        static_assert(sizeof(T) <= kMaxPayload, "Telemetry payload too large");
+
+        publishRaw(type, &payload, sizeof(T));
+    }
 
   private:
     struct Item
@@ -45,8 +70,10 @@ class RtpTelemetry
 
     QueueHandle_t m_queue{nullptr};
 
-    static void telemetryTask(void* arg);
+    void publishRaw(RtpType type, const void* payload, size_t len);
+
     static auto calculateCrc8(const uint8_t* data, size_t len) -> uint8_t;
+    static void telemetryTask(void* pvParameters);
 };
 
 } // namespace Rtp

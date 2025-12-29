@@ -1,5 +1,8 @@
-#include "CalibModule.h"
+#include "config/Config.h"
 
+#ifdef RUN_MODE_CALIB
+
+#include "CalibModule.h"
 #include "config/Config.h"
 #include "driver/EncoderDriver.h"
 #include "driver/MotorDriver.h"
@@ -32,7 +35,7 @@ void CalibModule::begin()
         findMinPWM();
         break;
     case 3:
-        calibrateTPR(10);
+        calibrateTPR2(1);
         break;
     case 4:
         beginDataCollector(MotorSide::LEFT, TuneCollectorSpeed::SLOW);
@@ -162,6 +165,63 @@ void CalibModule::calibrateTPR(int targetRotations)
         Serial.read();
 }
 
+void CalibModule::calibrateTPR2(int targetRotations)
+{
+    LOG_INFO("--- Ticks Per Revolution VERIFICATION ---");
+    LOG_INFO("This test uses already calibrated TPR values.");
+    LOG_INFO("Wheel will rotate a fixed number of turns and stop automatically.");
+    LOG_DATA("Target rotations: ", targetRotations);
+    delay(3000);
+
+    // ---- CONFIG ----
+    constexpr float TEST_PWM = 28.0f;
+
+    const long targetTicksLeft = (long)(L_TICKS_PER_REV * targetRotations);
+    const long targetTicksRight = (long)(R_TICKS_PER_REV * targetRotations);
+
+    // ---- RESET ----
+    controller->resetEncoders();
+    delay(50);
+
+    // ---- START MOTION ----
+    controller->manualPwm(0.0f, TEST_PWM);
+    LOG_INFO("Spinning...");
+
+    while (true)
+    {
+        // long ticksL = labs(controller->getLeftTicks());
+        long ticksR = labs(controller->getRightTicks());
+
+        // LOG_DATA("L ticks: ", ticksL);
+        LOG_DATA(" | R ticks: ", ticksR);
+
+        // Stop condition: BOTH wheels reached target
+        if (ticksR >= targetTicksRight) // && ticksR >= targetTicksRight)
+            break;
+
+        delay(50);
+    }
+
+    // ---- STOP ----
+    controller->stopEmergency();
+    delay(200);
+
+    // long finalL = controller->getLeftTicks();
+    long finalR = controller->getRightTicks();
+
+    LOG_INFO("\n--- VERIFICATION RESULTS ---");
+    // LOG_DATA("Left ticks: ", finalL);
+    LOG_DATA("Right ticks: ", finalR);
+
+    // LOG_DATA("Left rotations achieved: ", (float)finalL / L_TICKS_PER_REV);
+    LOG_DATA("Right rotations achieved: ", (float)finalR / R_TICKS_PER_REV);
+
+    LOG_INFO("Expected rotations:");
+    LOG_DATA("Target: ", targetRotations);
+
+    LOG_INFO("If values differ noticeably → TPR calibration is off.");
+}
+
 void CalibModule::beginDataCollector(MotorSide motorSide, TuneCollectorSpeed speedMode)
 {
     if (motorSide == MotorSide::LEFT)
@@ -175,6 +235,7 @@ void CalibModule::beginDataCollector(MotorSide motorSide, TuneCollectorSpeed spe
         encoder = &controller->rightEnc;
     }
     pwmTuneSpeedMode = speedMode;
+    side = motorSide;
 
     m_tele_queue = xQueueCreate(100, sizeof(TelemetryData));
     if (m_tele_queue == NULL)
@@ -223,105 +284,133 @@ void CalibModule::taskCollectData(void* pvParameters)
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(SPEED_PID_SAMPLE_TIME_MS);
+    const float dt = SPEED_PID_SAMPLE_TIME_MS / 1000.0f;
 
     for (;;)
     {
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
         uint32_t currentTicks = self->encoder->getTicks();
-        uint32_t deltaTicks = currentTicks - self->lastTicks;
+        int32_t deltaTicks = (int32_t)(currentTicks - self->lastTicks);
         self->lastTicks = currentTicks;
-        float currentRps =
-            (float)(deltaTicks * 1000.0f) / (TICKS_PER_REV * SPEED_PID_SAMPLE_TIME_MS);
+
+        uint32_t ticksPerRev = (self->side == MotorSide::LEFT) ? L_TICKS_PER_REV : R_TICKS_PER_REV;
+        float currentRps = (float)deltaTicks / (((float)ticksPerRev) * dt);
+
+        float now = xTaskGetTickCount() * dt;
 
         switch (self->currentTuneState)
         {
         case IDLE:
+        {
             self->stateTimer = 0;
             self->outputPWM = 0.0f;
-            if (self->idleTimer == 0)
-            {
-                Serial.println("IDLE....");
-            }
             self->idleTimer += SPEED_PID_SAMPLE_TIME_MS;
+
             if (self->idleTimer >= 2000)
             {
-                // Wait for serial command to set state to BASELINE
+                self->idleTimer = 0;
                 if (xSemaphoreTake(self->xTuneMutex, portMAX_DELAY))
                 {
                     self->currentTuneState = BASELINE;
                     xSemaphoreGive(self->xTuneMutex);
                 }
             }
-            else if (self->idleTimer % 500 == 0)
-            {
-                Serial.println("PREPARE YOURSELF");
-            }
             break;
-
+        }
         case BASELINE:
+        {
             self->outputPWM = 0.0f;
-            if (self->stateTimer == 0)
-                Serial.println("START_TEST");
-            self->stateTimer += SPEED_PID_SAMPLE_TIME_MS; // Add loop step
+            self->stateTimer += SPEED_PID_SAMPLE_TIME_MS;
+
+            // RESET IDENTIFICATION STATE
+            self->ident = {};
+            self->tune = {};
+            self->stepDetected = false;
+            self->rpsAccum = 0.0f;
+            self->rpsSamples = 0;
+
             if (self->stateTimer >= BASELINE_MS)
             {
+                self->stateTimer = 0;
                 if (xSemaphoreTake(self->xTuneMutex, portMAX_DELAY))
                 {
                     self->currentTuneState = STEP;
                     xSemaphoreGive(self->xTuneMutex);
                 }
+            }
+            break;
+        }
+        case STEP:
+        {
+            self->outputPWM = self->getTestPwm(); // Instant jump
+
+            // Detect step
+            self->stepDetected = true;
+            self->stepStartTime = now;
+            self->ident.stepPwm = fabsf(self->outputPWM);
+
+            self->currentTuneState = OBSERVATION;
+            break;
+        }
+        case OBSERVATION:
+        {
+            self->stateTimer += SPEED_PID_SAMPLE_TIME_MS;
+            // Accumulate for steady-state
+            self->rpsAccum += currentRps;
+            self->rpsSamples++;
+
+            float rpsAvg = self->rpsAccum / self->rpsSamples;
+
+            // Detect τ (63.2%)
+            if (self->ident.tau == 0.0f)
+            {
+                float rps63 = 0.632f * rpsAvg;
+                if (currentRps >= rps63)
+                {
+                    self->ident.tau = now - self->stepStartTime;
+                }
+            }
+
+            if (self->stateTimer >= OBSERVATION_MS)
+            {
+                self->ident.rpsFinal = rpsAvg;
+                self->ident.K = self->ident.rpsFinal / self->ident.stepPwm;
+                self->currentTuneState = FINISHED;
                 self->stateTimer = 0;
             }
             break;
-
-        case STEP:
-            self->outputPWM = self->getTestPwm(); // Instant jump
-            self->currentTuneState = OBSERVATION;
-            break;
-
-        case OBSERVATION:
-            self->stateTimer += SPEED_PID_SAMPLE_TIME_MS;
-            if (self->stateTimer >= OBSERVATION_MS)
-            {
-                if (xSemaphoreTake(self->xTuneMutex, portMAX_DELAY))
-                {
-                    self->currentTuneState = FINISHED;
-                    xSemaphoreGive(self->xTuneMutex);
-                }
-            }
-            break;
-
+        }
         case FINISHED:
-            self->outputPWM = 0.0;
-            Serial.println("END_TEST");
-            if (xSemaphoreTake(self->xTuneMutex, portMAX_DELAY))
-            {
-                self->currentTuneState = END;
-                xSemaphoreGive(self->xTuneMutex);
-            }
+        {
+            constexpr float OMEGA_C = 10.0f; // ✔ scoped
+
+            self->tune.kFF = 1.0f / self->ident.K;
+            self->tune.kP = (self->ident.tau / self->ident.K) * OMEGA_C;
+            self->tune.kI = self->tune.kP / (4.0f * self->ident.tau);
+
+            Serial.println("\n=== AUTO TUNE RESULT ===");
+            Serial.print("K     = ");
+            Serial.println(self->ident.K, 6);
+            Serial.print("tau   = ");
+            Serial.println(self->ident.tau, 4);
+            Serial.print("kFF   = ");
+            Serial.println(self->tune.kFF, 6);
+            Serial.print("kP    = ");
+            Serial.println(self->tune.kP, 4);
+            Serial.print("kI    = ");
+            Serial.println(self->tune.kI, 4);
+
+            self->outputPWM = 0.0f;
             self->stateTimer = 0;
-            break;
-        case END:
+            self->currentTuneState = END;
             self->motor->shutdown();
-            Serial.println("By bye");
             vTaskDelete(NULL);
+        }
         }
 
         // Apply PWM to motor
         self->motor->driveMotor(self->outputPWM, true);
-
-        // Send Telemetry (Time, Speed, Power)
-        if (self->currentTuneState != IDLE)
-        {
-            TelemetryData packet;
-            packet.timestamp = xTaskGetTickCount();
-            packet.rps = currentRps;
-            packet.pwm = self->outputPWM;
-
-            // Send to queue (do not wait if queue is full)
-            xQueueSend(self->m_tele_queue, &packet, 0);
-        }
     }
 }
 
@@ -344,3 +433,5 @@ void CalibModule::taskTelemetryData(void* pvParameters)
         }
     }
 }
+
+#endif

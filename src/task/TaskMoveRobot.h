@@ -17,7 +17,7 @@ class MoveRobotTask
         vTaskDelay(pdMS_TO_TICKS(2000)); // Czekaj na start
 
         // --- MANEWR 1: OBRÓT O 90 STOPNI ---
-        LOG_INFO("Rotating 90 deg...");
+        // LOG_INFO("Rotating 90 deg...");
         odo.reset();
         vc->setTwist(0, 5.0f); // Obrót 1 rad/s
         while (true)
@@ -31,7 +31,7 @@ class MoveRobotTask
         vTaskDelay(pdMS_TO_TICKS(500));
 
         // --- MANEWR 2: JAZDA 30 CM ---
-        LOG_INFO("Driving 30 cm...");
+        // LOG_INFO("Driving 30 cm...");
         odo.reset();
         vc->setTwist(10.0f, 0); // 10 cm/s prosto
 
@@ -46,7 +46,7 @@ class MoveRobotTask
         }
 
         vc->stopEmergency();
-        LOG_INFO("Mission Complete!");
+        // LOG_INFO("Mission Complete!");
         vTaskDelete(NULL);
     }
 };

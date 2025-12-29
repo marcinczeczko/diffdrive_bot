@@ -4,32 +4,12 @@
 
 namespace Rtp
 {
-// ---- CRC8 ----
-auto RtpTelemetry::calculateCrc8(const uint8_t* data, size_t len) -> uint8_t
-{
-    static constexpr uint8_t CRC8_INIT = 0x00;
-    static constexpr uint8_t CRC8_MSB_MASK = 0x80;
-    static constexpr uint8_t CRC8_POLYNOMIAL = 0x07;
-    static constexpr uint8_t BITS_PER_BYTE = 8;
-
-    uint8_t crc = CRC8_INIT;
-    for (size_t i = 0; i < len; ++i)
-    {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        crc ^= data[i];
-        for (uint8_t j = 0; j < BITS_PER_BYTE; j++)
-        {
-            crc = (crc & CRC8_MSB_MASK) ? (crc << 1) ^ CRC8_POLYNOMIAL : (crc << 1);
-        }
-    }
-}
-
 // ---- Init ----
 void RtpTelemetry::begin()
 {
     // Jeśli chcesz używać xQueueOverwrite, kolejka MUSI mieć długość 1.
     // Jeśli chcesz buforować 8 wiadomości, użyj xQueueSend.
-    m_queue = xQueueCreate(8, sizeof(Item));
+    m_queue = xQueueCreate(TELEMETRY_QUEUE_SIZE, sizeof(Item));
 
     if (m_queue == nullptr)
     {
@@ -51,27 +31,27 @@ void RtpTelemetry::begin()
     }
 }
 
-// ---- Publish (callable from task willing to publish telemetry data) ----
-void RtpTelemetry::publish(RtpType type, const void* payload, uint8_t len)
+// ---- Publish (callable from task willing to publish telemetry data) ---
+void RtpTelemetry::publishRaw(RtpType type, const void* payload, size_t len)
 {
-    if (len > kMaxPayload || m_queue == nullptr)
+    if (payload == nullptr || len == 0 || len > kMaxPayload || m_queue == nullptr)
     {
         return;
     }
 
-    Item item = {};
+    Item item{};
     item.type = type;
     item.len = len;
     memcpy(item.payload, payload, len);
 
-    // overwrite → always most fresh data
-    xQueueOverwrite(m_queue, &item);
+    // telemetria → zawsze ostatnia próbka
+    xQueueSend(m_queue, &item, 0);
 }
 
 // ---- Telemetry Task ----
-void RtpTelemetry::telemetryTask(void* arg)
+void RtpTelemetry::telemetryTask(void* pvParameters)
 {
-    auto* self = static_cast<RtpTelemetry*>(arg);
+    auto* self = (RtpTelemetry*)pvParameters;
 
     Item item{};
 
@@ -79,18 +59,50 @@ void RtpTelemetry::telemetryTask(void* arg)
     {
         if (xQueueReceive(self->m_queue, &item, portMAX_DELAY) == pdTRUE)
         {
-            RtpHeader hdr{kStartOfFrame, kVersion, item.type,
-                          0x01, // flags
-                          item.len};
+            // [HEADER(5) + PAYLOAD + CRC]
+            uint8_t frame[sizeof(RtpHeader) + kMaxPayload + 1];
+            size_t pos = 0;
 
-            uint8_t crc = 0;
-            crc ^= calculateCrc8(&hdr.version, 4);
-            crc ^= calculateCrc8(item.payload, item.len);
+            // --- Header ---
+            frame[pos++] = kMagic_0;
+            frame[pos++] = kMagic_1;
+            frame[pos++] = static_cast<uint8_t>(item.type);
+            frame[pos++] = item.len;
+            frame[pos++] = calculateCrc8(reinterpret_cast<const uint8_t*>(frame), 4);
 
-            Serial.write((uint8_t*)&hdr, sizeof(hdr));
-            Serial.write(item.payload, item.len);
-            Serial.write(crc);
+            // --- Payload ---
+            memcpy(&frame[pos], item.payload, item.len);
+            pos += item.len;
+
+            // --- Payload CRC ---
+            frame[pos++] = calculateCrc8(item.payload, item.len);
+
+            // --- Send atomically ---
+            Serial.write(frame, pos);
+            Serial.flush(); // IMPORTANT for USB CDC
         }
     }
 }
+
+// ---- CRC8 ----
+auto RtpTelemetry::calculateCrc8(const uint8_t* data, size_t len) -> uint8_t
+{
+    static constexpr uint8_t CRC8_INIT = 0x00;
+    static constexpr uint8_t CRC8_MSB_MASK = 0x80;
+    static constexpr uint8_t CRC8_POLYNOMIAL = 0x07;
+    static constexpr uint8_t BITS_PER_BYTE = 8;
+
+    uint8_t crc = CRC8_INIT;
+    for (size_t i = 0; i < len; ++i)
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        crc ^= data[i];
+        for (uint8_t j = 0; j < BITS_PER_BYTE; j++)
+        {
+            crc = (crc & CRC8_MSB_MASK) ? (crc << 1) ^ CRC8_POLYNOMIAL : (crc << 1);
+        }
+    }
+    return crc;
+}
+
 } // namespace Rtp

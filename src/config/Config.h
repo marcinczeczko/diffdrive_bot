@@ -21,9 +21,9 @@
 #define ENC_R_PIN_B 8  // IRQ9
 
 // ----- MOTION PROFILING ----
-// #define RPS_RAMP_NONE
+#define RPS_RAMP_NONE
 //  #define RPS_RAMP_LINEAR
-#define RPS_RAMP_SCURVE
+// #define RPS_RAMP_SCURVE
 
 #ifdef RPS_RAMP_LINEAR
 #define RPS_RAMP_MAX_ACCEL 2.0F // rps / s
@@ -39,16 +39,16 @@
 // ==========================================
 // Uncomment EXACTLY ONE
 
-#define RUN_MODE_CALIB // Step 1: To check proper motor spinning, find minimal PWM to start
-// robot moving & to find exact exact encoder ticks per wheel revolution
-// #define RUN_MODE_NORMAL // Step 5: Normal driving
-// #define COHEN_CALIB
+// #define RUN_MODE_CALIB // Step 1: To check proper motor spinning, find minimal PWM to start
+//    robot moving & to find exact exact encoder ticks per wheel revolution
+#define RUN_MODE_NORMAL // Step 5: Normal driving
 
 // ==========================================
 //  CONFIGURATION
 // ==========================================
 // Physics (measured data)
-#define TICKS_PER_REV 4000     // Number of slots in the encoder disc
+#define L_TICKS_PER_REV 3800   // Number of slots in the encoder disc
+#define R_TICKS_PER_REV 3700   // Number of slots in the encoder disc
 #define WHEEL_DIAMETER_CM 6.6F // Wheel diameter in cm
 #define TRACK_WIDTH_CM 11.0F   // Distance between center of wheels in cm
 
@@ -60,16 +60,16 @@
 #define SPEED_PID_SAMPLE_TIME_MS 50 // PID Loop sample rate
 // Fill in after PID auto-tune
 
-#define L_MOTOR_PID_KP 111.23f
-#define L_MOTOR_PID_KI 391.95f
-#define L_MOTOR_PID_KFF 0.0f
+#define L_MOTOR_PID_KP 117.76f
+#define L_MOTOR_PID_KI 121.77f
+#define L_MOTOR_PID_KFF 0.0F // 48.71f
 
-#define R_MOTOR_PID_KP 142.12f
-#define R_MOTOR_PID_KI 417.34f
-#define R_MOTOR_PID_KFF 0.0f
+#define R_MOTOR_PID_KP 157.5f
+#define R_MOTOR_PID_KI 135.75f
+#define R_MOTOR_PID_KFF 0.0F // 54.3f
 
 #define RPS_ALPHA 0.2f
-#define MOTORS_CROSS_COUPLING_GAIN 0.1f
+//  #define MOTORS_CROSS_COUPLING_GAIN 0.1f
 
 // ==========================================
 //                 LIMITS
@@ -78,10 +78,12 @@
 #define PWM_MAX_DUTY 95.0f
 #define PWM_MIN_DUTY 30.0f
 
+#define TELEMETRY_QUEUE_SIZE 8
+
 // ==========================================
 //                 DEBUG LEVELS
 // ==========================================
-#define CURRENT_DEBUG_LEVEL DEBUG_LEVEL_PID
+#define CURRENT_DEBUG_LEVEL DEBUG_LEVEL_NONE
 
 // ==========================================
 //                 DEBUG MACROS
@@ -153,7 +155,7 @@
 #define LOG_DATA_3(side, msg, d1, d2, d3)
 #endif
 
-#ifdef FOO
+#if (CURRENT_DEBUG_LEVEL == DEBUG_LEVEL_PID)
 // Specialized PID Macro - formatted for Serial Plotter
 #define LOG_PID(tick, side, sp, in, err, p, i, out, duty)                                          \
     {                                                                                              \

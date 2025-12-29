@@ -11,7 +11,25 @@
 #include <Arduino_FreeRTOS.h>
 #include <math.h>
 
-extern Rtp::RtpTelemetry telemetry;
+#pragma pack(push, 1)
+struct ControlLoopPayload
+{
+    uint32_t loopCntr;
+    float setpointL;
+    float setpointR;
+
+    float rampSetpointL;
+    float rampSsetpointR;
+
+    float measuredRpsL;
+    float measuredRpsR;
+
+    float deltaLticks;
+    float deltaRticks;
+};
+#pragma pack(pop)
+
+static_assert(sizeof(ControlLoopPayload) == 36, "ControlLoopPayload ABI mismatch");
 
 enum ControllerMode
 {
@@ -33,17 +51,12 @@ class VelocityController
     RpsRamp rampLeft, rampRight;
 
     int32_t lastLeftTicks = 0, lastRightTicks = 0;
-    // cross-coupling gain
-    float syncGain;
-
-    // Filtered RPS state
-    float filteredLeft_rps = 0.0F;
-    float filteredRight_rps = 0.0F;
-
-    // Alpha parameter (tunable)
-    float rpsAlpha = 0.0F;
+    // // cross-coupling gain
+    // float syncGain;
 
     Odometry odometry;
+
+    Rtp::RtpTelemetry* telemetry;
 
     SemaphoreHandle_t syncSemaphore;
 
@@ -57,19 +70,14 @@ class VelocityController
         targetR_rps = r_rps;
     }
 
-    auto ticksToCm(int32_t ticks) -> float
-    {
-        return (float)ticks * (PI * WHEEL_DIAMETER_CM) / TICKS_PER_REV;
-    }
-
   public:
-    VelocityController(ControllerMode mode)
-        : runMode(mode), leftMotor(L_PWM, L_DIR, MotorSide::LEFT, SPEED_PID_SAMPLE_TIME_MS,
-                                   L_MOTOR_PID_KP, L_MOTOR_PID_KI, L_MOTOR_PID_KFF),
-          rightMotor(R_PWM, R_DIR, MotorSide::RIGHT, SPEED_PID_SAMPLE_TIME_MS, R_MOTOR_PID_KP,
-                     R_MOTOR_PID_KI, R_MOTOR_PID_KFF),
-          leftEnc(ENC_L_PIN_A, ENC_L_PIN_B), rightEnc(ENC_R_PIN_A, ENC_R_PIN_B),
-          syncGain(MOTORS_CROSS_COUPLING_GAIN), rpsAlpha(RPS_ALPHA)
+    VelocityController(Rtp::RtpTelemetry* tele, ControllerMode mode)
+        : telemetry(tele), runMode(mode),
+          leftMotor(L_PWM, L_DIR, L_TICKS_PER_REV, MOTOR_SIDE_LEFT, SPEED_PID_SAMPLE_TIME_MS,
+                    L_MOTOR_PID_KP, L_MOTOR_PID_KI, L_MOTOR_PID_KFF, tele),
+          rightMotor(R_PWM, R_DIR, R_TICKS_PER_REV, MOTOR_SIDE_RIGHT, SPEED_PID_SAMPLE_TIME_MS,
+                     R_MOTOR_PID_KP, R_MOTOR_PID_KI, R_MOTOR_PID_KFF, tele),
+          leftEnc(ENC_L_PIN_A, ENC_L_PIN_B), rightEnc(ENC_R_PIN_A, ENC_R_PIN_B)
     {
     }
 
@@ -146,7 +154,7 @@ class VelocityController
             int32_t currLeftTicks = self->leftEnc.getTicks();
             int32_t currRightTicks = self->rightEnc.getTicks();
 
-            // Calculate delta Ticks
+            // ODOMETRY (raw ticks only)
             int32_t dLeftTicks = currLeftTicks - self->lastLeftTicks;
             int32_t dRightTicks = currRightTicks - self->lastRightTicks;
 
@@ -155,56 +163,51 @@ class VelocityController
             self->lastRightTicks = currRightTicks;
 
             // --- ODOMETRY
-            float deltaLcm = self->ticksToCm(dLeftTicks);
-            float deltaRcm = self->ticksToCm(dRightTicks);
+            float deltaLcm = (float)dLeftTicks * (PI * WHEEL_DIAMETER_CM) / L_TICKS_PER_REV;
+            float deltaRcm = (float)dRightTicks * (PI * WHEEL_DIAMETER_CM) / R_TICKS_PER_REV;
 
-            float dDist = (deltaRcm + deltaLcm) / 2.0f;
+            float dDist = (deltaRcm + deltaLcm) * 0.5f;
             float dTheta = (deltaRcm - deltaLcm) / TRACK_WIDTH_CM;
 
             self->odometry.update(dDist, dTheta);
+            if (self->loopCounter % 5 == 0 && self->telemetry != nullptr)
+            {
+                Pose pose = self->odometry.getPose();
+
+                OdomPayload odom{};
+                odom.loopCntr = self->loopCounter;
+                odom.x = pose.x;
+                odom.y = pose.y;
+                odom.theta = pose.theta;
+
+                self->telemetry->publish(Rtp::RTP_ODOM, odom);
+            }
             // --- ENd of ODOMETRY
 
-            // Calculate RPS for delta ticks
-            float rawRps_left = ticksToRps(dLeftTicks);
-            float rawRps_right = ticksToRps(dRightTicks);
-
-            // Apply alpha filter (noise filter) to calculated rps
-            self->filteredLeft_rps =
-                self->alphaFilter(self->filteredLeft_rps, rawRps_left, self->rpsAlpha);
-
-            self->filteredRight_rps =
-                self->alphaFilter(self->filteredRight_rps, rawRps_right, self->rpsAlpha);
-
-            // Use filtered values from now on
-            float vLeftRps = self->filteredLeft_rps;
-            float vRightRps = self->filteredRight_rps;
-
-            // Tracking errors
-            float eLeft = localL_rps - vLeftRps;
-            float eRight = localR_rps - vRightRps;
-
-            // Cross-coupling error (difference of errors!)
-            float syncError = eLeft - eRight;
-
-            // Correct targets (OPPOSITE signs!)
-            float corrLeft_rps = localL_rps - self->syncGain * syncError;
-            float corrRight_rps = localR_rps + self->syncGain * syncError;
-
             // Feed motors
-            self->leftMotor.update(corrLeft_rps, currLeftTicks, self->loopCounter);
-            self->rightMotor.update(corrRight_rps, currRightTicks, self->loopCounter);
+            self->leftMotor.update(localL_rps, currLeftTicks, self->loopCounter);
+            self->rightMotor.update(localR_rps, currRightTicks, self->loopCounter);
 
-            if (self->loopCounter % 10 == 0)
+            if (self->loopCounter % 5 == 0 && self->telemetry != nullptr)
             {
-                // LOG_DATA_2("RPS", " rpsL|rpsR", corrLeft_rps, corrRight_rps);
+                ControlLoopPayload payload{};
+                payload.loopCntr = self->loopCounter;
+                payload.setpointL = localTargetL_rps;
+                payload.setpointR = localTargetR_rps;
+                payload.rampSetpointL = localL_rps;
+                payload.rampSsetpointR = localR_rps;
+                payload.deltaLticks = dLeftTicks;
+                payload.deltaRticks = dRightTicks;
+
+                self->telemetry->publish(Rtp::RTP_CTRL, payload);
             }
         }
     }
 
-    static float ticksToRps(long ticks)
-    {
-        return (float)(ticks * 1000.0f) / (TICKS_PER_REV * SPEED_PID_SAMPLE_TIME_MS);
-    }
+    // static float ticksToRps(long ticks)
+    // {
+    //     return (float)(ticks * 1000.0f) / (TICKS_PER_REV * SPEED_PID_SAMPLE_TIME_MS);
+    // }
 
     void setRps(float l_rps, float r_rps)
     {
@@ -265,11 +268,6 @@ class VelocityController
     {
         leftEnc.reset();
         rightEnc.reset();
-    }
-
-    inline float alphaFilter(float prev, float current, float alpha)
-    {
-        return alpha * current + (1.0f - alpha) * prev;
     }
 
     // Helper for Calibrator

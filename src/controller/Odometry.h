@@ -7,6 +7,18 @@
 #include <Arduino_FreeRTOS.h>
 #include <math.h>
 
+#pragma pack(push, 1)
+struct OdomPayload
+{
+    uint32_t loopCntr;
+    float x;
+    float y;
+    float theta;
+};
+#pragma pack(pop)
+
+static_assert(sizeof(OdomPayload) == 16, "OdomPayload ABI mismatch");
+
 struct Pose
 {
     float x;     // cm

@@ -21,55 +21,60 @@ class TestDriveTask
         int stepDelayMs = 150; // Time between speed increments (50ms * 100 = 5 seconds)
 
         LOG_INFO("Drive straight...");
-        controller.setRps(1.0F, 1.0F);
+        vc->setRps(0.5F, 0.5F);
         vTaskDelay(pdMS_TO_TICKS(10000));
 
         // LOG_INFO("Turn right...");
-        // robot.setRps(0.4F, -0.4F);
+        // vc->setRps(0.4F, -0.4F);
         // vTaskDelay(pdMS_TO_TICKS(1250));
 
         // LOG_INFO("Go back...");
-        // robot.setRps(-0.4F, -0.4F);
+        // vc->setRps(-0.4F, -0.4F);
         // vTaskDelay(pdMS_TO_TICKS(1000));
 
         // LOG_INFO("Turn 360 degree...");
-        // robot.setRps(-0.4F, 0.4F);
+        // vc->setRps(-0.4F, 0.4F);
         // vTaskDelay(pdMS_TO_TICKS(3000));
 
         // LOG_INFO("Drive arc...");
-        // robot.setRps(0.2F, 0.4F);
+        // vc->setRps(0.2F, 0.4F);
         // vTaskDelay(pdMS_TO_TICKS(5000));
 
-        // robot.setRps(0.0f, 0.0f);
+        // vc->setRps(0.0f, 0.0f);
         // vTaskDelay(pdMS_TO_TICKS(1000));
 
         // // 1. RAMP UP: 0.6 -> 2.0
         // LOG_INFO("Ramping Up...");
-        // for (int i = 0; i <= rampSteps; i++) {
+        // for (int i = 0; i <= rampSteps; i++)
+        // {
         //     // Linear Interpolation: current = start + (fraction * total_range)
         //     float currentRps = startRps + (float)i / rampSteps * (endRps - startRps);
-        //     robot.setRps(currentRps, currentRps);
+        //     vc->setRps(currentRps, currentRps);
         //     vTaskDelay(pdMS_TO_TICKS(stepDelayMs));
         // }
 
-        //  vTaskDelay(pdMS_TO_TICKS(4000));
+        // vTaskDelay(pdMS_TO_TICKS(4000));
 
         // LOG_INFO("Ramping Down...");
-        // for (int i = 0; i <= rampSteps; i++) {
+        // for (int i = 0; i <= rampSteps; i++)
+        // {
         //     // Reverse Interpolation: current = end - (fraction * total_range)
         //     float currentRps = endRps - (float)i / rampSteps * (endRps - startRps);
-        //     robot.setRps(-currentRps, currentRps);
+        //     vc->setRps(-currentRps, currentRps);
         //     vTaskDelay(pdMS_TO_TICKS(stepDelayMs));
         // }
 
         // 3. Stop
         LOG_INFO("--- Mission Complete: Stopping ---");
-        vc->stopEmergency();
+        vc->setRps(0.0F, 0.0F);
+        vTaskDelay(pdMS_TO_TICKS(2000));
 
         // 4. Delete this task (it's done its job)
         // In FreeRTOS, a task must either loop forever or delete itself.
         // Final check before the task disappears
-        vTaskDelete(nullptr);
+        while (1)
+        {
+        }
     }
 
   private:

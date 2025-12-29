@@ -1,7 +1,7 @@
 
 #include "config/Config.h"
 #include "controller/VelocityController.h"
-#include "task/TaskVirtualAnchor.h"
+#include "task/TestDriveTask.h"
 #include "tele/RtpTelemetry.h"
 
 #include <Arduino.h>
@@ -14,9 +14,9 @@
 Rtp::RtpTelemetry telemetry;
 
 #ifdef RUN_MODE_NORMAL
-VelocityController controller(ControllerMode::AUTO);
+VelocityController controller(&telemetry, ControllerMode::AUTO);
 #else
-VelocityController controller(ControllerMode::MANUAL);
+VelocityController controller(&telemetry, ControllerMode::MANUAL);
 CalibModule calib(&controller);
 #endif
 
@@ -34,8 +34,8 @@ void setup()
     // =============================
 #ifdef RUN_MODE_NORMAL
 
-    robot.begin();
-    xTaskCreate(VirtualAnchorTask::startTask, "Move", 256, &robot, 1, nullptr);
+    controller.begin();
+    xTaskCreate(TestDriveTask::startTask, "Move", 512, &controller, 1, nullptr);
     vTaskStartScheduler();
 
 #endif

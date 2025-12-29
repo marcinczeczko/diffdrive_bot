@@ -1,53 +1,33 @@
-# Checks: >
-#   -*,
-#   clang-analyzer-*,
-#   bugprone-*,
-#   performance-*,
-#   modernize-*,
-#   readability-*,
-#   cppcoreguidelines-*,
-#   -modernize-use-trailing-return-type
 Checks: >
-  -*, 
-  bugprone-*, 
-  cppcoreguidelines-*,
-   google-*, 
-   llvm-*, 
-   modernize-*, 
-   performance-*, 
-   readability-*'
+  -*,
 
-# Checks: > 
-#   *,
-#   -abseil-*,
-#   -altera-*,
-#   -android-*,
-#   -fuchsia-*,
-#   -google-*,
-#   -llvm*,
-#   -modernize-use-trailing-return-type,
-#   -zircon-*,
-#   -readability-else-after-return,
-#   -readability-static-accessed-through-instance,
-#   -readability-avoid-const-params-in-decls,
-#   -cppcoreguidelines-non-private-member-variables-in-classes,
-#   -misc-non-private-member-variables-in-classes
+  # ====== REAL BUGS (KEEP) ======
+  clang-analyzer-*,
+  bugprone-*,
+  performance-*,
+
+  # ====== CORE GUIDELINES (SELECTIVE) ======
+  cppcoreguidelines-avoid-goto,
+  cppcoreguidelines-avoid-magic-numbers,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-narrowing-conversions,
+  cppcoreguidelines-pro-type-member-init,
+  cppcoreguidelines-pro-type-static-cast-downcast,
+
+  # ====== MODERN C++ (SAFE SUBSET) ======
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-use-default-member-init,
+  modernize-deprecated-headers,
+
+  # ====== READABILITY (NON-IDEOLOGICAL) ======
+  readability-braces-around-statements,
+  readability-implicit-bool-conversion,
+  readability-redundant-control-flow,
+  readability-simplify-boolean-expr
 
 WarningsAsErrors: ''
 
-HeaderFilterRegex: '.*'
+HeaderFilterRegex: '^(src|include|app)/'
 
-# HeaderFilterRegex: '^(src|include)/'
-
-FormatStyle: none or google
-
-# CheckOptions:
-#   - key: cppcoreguidelines-avoid-magic-numbers.IgnoreAllFloatingPointValues
-#     value: 'true'
-
-#   - key: readability-identifier-naming.ClassCase
-#     value: CamelCase
-#   - key: readability-identifier-naming.FunctionCase
-#     value: camelBack
-#   - key: readability-identifier-naming.VariableCase
-#     value: camelBack
+FormatStyle: none

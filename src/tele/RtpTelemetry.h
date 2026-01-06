@@ -32,8 +32,9 @@ struct RtpHeader
 static_assert(sizeof(RtpType) == 1, "RtpType must be 1 byte");
 static_assert(sizeof(RtpHeader) == 5, "RtpHeader layout broken");
 
-constexpr RtpType RTP_REQ_PID = 0x10; // Ustawienie PID
-constexpr RtpType RTP_REQ_CMD = 0x11; // Komenda tekstowa (CLI)
+constexpr RtpType RTP_REQ_PID_SIDE = 0x10; // Ustawienie PID
+constexpr RtpType RTP_REQ_PID_ALL = 0x11;  // Ustawienie PID
+constexpr RtpType RTP_REQ_CMD = 0x20;      // Komenda tekstowa (CLI)
 
 class RtpTelemetry
 {

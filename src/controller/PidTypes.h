@@ -41,7 +41,7 @@ struct PidLoopSnapshot
     PidSideState right;
 };
 
-struct PidTestCommand
+struct PidSideTestCommand
 {
     uint8_t motor;
     float kp;
@@ -51,12 +51,45 @@ struct PidTestCommand
     float testRps; // e.g. 0.6
     uint8_t rampType;
 };
+
+struct PidTestAllCommand
+{
+    float l_kp;
+    float l_ki;
+    float l_kff;
+    float l_alpha;
+    float l_testRps;
+    uint8_t l_rampType;
+    float r_kp;
+    float r_ki;
+    float r_kff;
+    float r_alpha;
+    float r_testRps;
+    uint8_t r_rampType;
+};
 #pragma pack(pop)
+
+enum class PidTestCmdType : uint8_t
+{
+    SIDE,
+    BOTH
+};
+
+struct PidTestCommand
+{
+    PidTestCmdType type;
+
+    union
+    {
+        PidSideTestCommand side;
+        PidTestAllCommand both;
+    };
+};
 
 static_assert(sizeof(PidSideState) == 10 * 4, "PidSideState ABI Layout broken");
 static_assert(sizeof(PidLoopSnapshot) == 2 * sizeof(PidSideState) + 5 * 4,
               "PidLoopSnapshot ABI Layout broken");
 
-static_assert(sizeof(PidTestCommand) == 22, "PidTestCommand ABI Layout broken");
+static_assert(sizeof(PidSideTestCommand) == 22, "PidTestCommand ABI Layout broken");
 
 #endif

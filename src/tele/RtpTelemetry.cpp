@@ -200,11 +200,11 @@ void RtpTelemetry::receiverTask(void* pvParameters)
                 if (calculateCrc8(payload, header.len) == b)
                 {
                     // --- RAMKA POPRAWNA - PROCESUJ ---
-                    if (header.type == RTP_REQ_PID && self->m_controller != nullptr)
+                    if (header.type == RTP_REQ_PID_SIDE && self->m_controller != nullptr)
                     {
-                        auto* cfg = (PidTestCommand*)payload;
+                        auto* cfg = (PidSideTestCommand*)payload;
 
-                        PidTestCommand cmd{};
+                        PidSideTestCommand cmd{};
                         cmd.motor = cfg->motor;
                         cmd.kp = cfg->kp;
                         cmd.ki = cfg->ki;
@@ -212,6 +212,26 @@ void RtpTelemetry::receiverTask(void* pvParameters)
                         cmd.alpha = cfg->alpha;
                         cmd.testRps = cfg->testRps;
                         cmd.rampType = cfg->rampType;
+
+                        g_pidTestTask->enqueue(cmd);
+                    }
+                    else if (header.type == RTP_REQ_PID_ALL && self->m_controller != nullptr)
+                    {
+                        auto* cfg = (PidTestAllCommand*)payload;
+
+                        PidTestAllCommand cmd{};
+                        cmd.l_kp = cfg->l_kp;
+                        cmd.l_ki = cfg->l_ki;
+                        cmd.l_kff = cfg->l_kff;
+                        cmd.l_alpha = cfg->l_alpha;
+                        cmd.l_testRps = cfg->l_testRps;
+                        cmd.l_rampType = cfg->l_rampType;
+                        cmd.r_kp = cfg->r_kp;
+                        cmd.r_ki = cfg->r_ki;
+                        cmd.r_kff = cfg->r_kff;
+                        cmd.r_alpha = cfg->r_alpha;
+                        cmd.r_testRps = cfg->r_testRps;
+                        cmd.r_rampType = cfg->r_rampType;
 
                         g_pidTestTask->enqueue(cmd);
                     }

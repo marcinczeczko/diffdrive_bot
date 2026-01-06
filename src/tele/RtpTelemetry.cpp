@@ -1,9 +1,19 @@
 #include "RtpTelemetry.h"
 
 #include "config/Config.h"
+#include "controller/PidTypes.h"
+#include "controller/VelocityController.h"
+#include "task/PidTestTask.h"
+
+extern PidTestTask* g_pidTestTask;
 
 namespace Rtp
 {
+void RtpTelemetry::setController(VelocityController* controller)
+{
+    m_controller = controller;
+}
+
 // ---- Init ----
 void RtpTelemetry::begin()
 {
@@ -27,6 +37,19 @@ void RtpTelemetry::begin()
         while (true)
         {
             delay(100);
+        }
+    }
+
+    if (m_controller != nullptr)
+    {
+        BaseType_t result = xTaskCreate(receiverTask, "rtpRecv", kStackDepth, this, 2, nullptr);
+        if (result != pdPASS)
+        {
+            LOG_ERR("Not enough memory for telemetry receiver task");
+            while (true)
+            {
+                delay(100);
+            }
         }
     }
 }
@@ -78,8 +101,8 @@ void RtpTelemetry::telemetryTask(void* pvParameters)
             frame[pos++] = calculateCrc8(item.payload, item.len);
 
             // --- Send atomically ---
-            Serial.write(frame, pos);
-            Serial.flush(); // IMPORTANT for USB CDC
+            Serial.write(frame, pos + 1); // R4 CDC Hack for ZLP flag
+            // Serial.flush(); // IMPORTANT for USB CDC
         }
     }
 }
@@ -103,6 +126,112 @@ auto RtpTelemetry::calculateCrc8(const uint8_t* data, size_t len) -> uint8_t
         }
     }
     return crc;
+}
+
+void RtpTelemetry::receiverTask(void* pvParameters)
+{
+    auto* self = (RtpTelemetry*)pvParameters;
+
+    enum State : uint8_t
+    {
+        WAIT_MAGIC_1,
+        WAIT_MAGIC_2,
+        READ_HEADER,
+        READ_PAYLOAD,
+        READ_CRC
+    };
+    State state = WAIT_MAGIC_1;
+
+    RtpHeader header{};
+    uint8_t payload[kMaxPayload];
+    uint8_t headerIdx = 0;
+    uint8_t payloadIdx = 0;
+
+    for (;;)
+    {
+        if (Serial.available())
+        {
+            uint8_t b = Serial.read();
+
+            switch (state)
+            {
+            case WAIT_MAGIC_1:
+                if (b == kMagic_0)
+                    state = WAIT_MAGIC_2;
+                break;
+
+            case WAIT_MAGIC_2:
+                if (b == kMagic_1)
+                {
+                    state = READ_HEADER;
+                    headerIdx = 2; // magic już mamy
+                    ((uint8_t*)&header)[0] = kMagic_0;
+                    ((uint8_t*)&header)[1] = kMagic_1;
+                }
+                else
+                    state = WAIT_MAGIC_1;
+                break;
+
+            case READ_HEADER:
+                ((uint8_t*)&header)[headerIdx++] = b;
+                if (headerIdx == sizeof(RtpHeader))
+                {
+                    // Sprawdź CRC nagłówka (4 pierwsze bajty)
+                    if (calculateCrc8((uint8_t*)&header, 4) == header.crc)
+                    {
+                        payloadIdx = 0;
+                        if (header.len > 0)
+                            state = READ_PAYLOAD;
+                        else
+                            state = READ_CRC;
+                    }
+                    else
+                        state = WAIT_MAGIC_1;
+                }
+                break;
+
+            case READ_PAYLOAD:
+                payload[payloadIdx++] = b;
+                if (payloadIdx == header.len)
+                    state = READ_CRC;
+                break;
+
+            case READ_CRC:
+                if (calculateCrc8(payload, header.len) == b)
+                {
+                    // --- RAMKA POPRAWNA - PROCESUJ ---
+                    if (header.type == RTP_REQ_PID && self->m_controller != nullptr)
+                    {
+                        auto* cfg = (PidTestCommand*)payload;
+
+                        PidTestCommand cmd{};
+                        cmd.motor = cfg->motor;
+                        cmd.kp = cfg->kp;
+                        cmd.ki = cfg->ki;
+                        cmd.kff = cfg->kff;
+                        cmd.alpha = cfg->alpha;
+                        cmd.testRps = cfg->testRps;
+                        cmd.rampType = cfg->rampType;
+
+                        g_pidTestTask->enqueue(cmd);
+                    }
+                    else if (header.type == RTP_REQ_CMD)
+                    {
+                        // CLI: payload jako string
+                        payload[header.len] = '\0'; // Null terminator
+                        LOG_INFO((char*)payload);
+                        // Tutaj możesz dodać prosty parser komend tekstowych
+                    }
+                }
+                state = WAIT_MAGIC_1;
+                break;
+            }
+        }
+        else
+        {
+            vTaskDelay(pdMS_TO_TICKS(10)); // Czekaj na dane
+        }
+    }
 }
 
 } // namespace Rtp

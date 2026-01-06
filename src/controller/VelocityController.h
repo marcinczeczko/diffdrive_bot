@@ -3,6 +3,7 @@
 
 #include "Odometry.h"
 #include "calibrator/CalibModule.h"
+#include "controller/PidTypes.h"
 #include "driver/EncoderDriver.h"
 #include "driver/MotorDriver.h"
 #include "tele/RtpTelemetry.h"
@@ -11,30 +12,16 @@
 #include <Arduino_FreeRTOS.h>
 #include <math.h>
 
-#pragma pack(push, 1)
-struct ControlLoopPayload
-{
-    uint32_t loopCntr;
-    float setpointL;
-    float setpointR;
-
-    float rampSetpointL;
-    float rampSsetpointR;
-
-    float measuredRpsL;
-    float measuredRpsR;
-
-    float deltaLticks;
-    float deltaRticks;
-};
-#pragma pack(pop)
-
-static_assert(sizeof(ControlLoopPayload) == 36, "ControlLoopPayload ABI mismatch");
-
 enum ControllerMode
 {
     AUTO,
     MANUAL
+};
+
+enum Ramp : uint8_t
+{
+    NONE = 0x00,
+    LINEAR = 0x01
 };
 
 class VelocityController
@@ -42,7 +29,7 @@ class VelocityController
     friend class CalibModule;
 
   private:
-    volatile uint32_t loopCounter = 0; // Global sequence counter
+    uint32_t loopCounter = 0; // Global sequence counter
 
     MotorDriver leftMotor, rightMotor;
     SafeEncoder leftEnc, rightEnc;
@@ -53,6 +40,8 @@ class VelocityController
     int32_t lastLeftTicks = 0, lastRightTicks = 0;
     // // cross-coupling gain
     // float syncGain;
+
+    uint8_t rampType = Ramp::NONE;
 
     Odometry odometry;
 
@@ -73,10 +62,10 @@ class VelocityController
   public:
     VelocityController(Rtp::RtpTelemetry* tele, ControllerMode mode)
         : telemetry(tele), runMode(mode),
-          leftMotor(L_PWM, L_DIR, L_TICKS_PER_REV, MOTOR_SIDE_LEFT, SPEED_PID_SAMPLE_TIME_MS,
-                    L_MOTOR_PID_KP, L_MOTOR_PID_KI, L_MOTOR_PID_KFF, tele),
-          rightMotor(R_PWM, R_DIR, R_TICKS_PER_REV, MOTOR_SIDE_RIGHT, SPEED_PID_SAMPLE_TIME_MS,
-                     R_MOTOR_PID_KP, R_MOTOR_PID_KI, R_MOTOR_PID_KFF, tele),
+          leftMotor(L_PWM, L_DIR, L_TICKS_PER_REV, MOTOR_SIDE_LEFT, L_MOTOR_PID_KP, L_MOTOR_PID_KI,
+                    L_MOTOR_PID_KFF, tele),
+          rightMotor(R_PWM, R_DIR, R_TICKS_PER_REV, MOTOR_SIDE_RIGHT, R_MOTOR_PID_KP,
+                     R_MOTOR_PID_KI, R_MOTOR_PID_KFF, tele),
           leftEnc(ENC_L_PIN_A, ENC_L_PIN_B), rightEnc(ENC_R_PIN_A, ENC_R_PIN_B)
     {
     }
@@ -84,11 +73,6 @@ class VelocityController
     Odometry& getOdometry()
     {
         return odometry;
-    }
-
-    long getLoopCounter()
-    {
-        return loopCounter;
     }
 
     void begin()
@@ -109,7 +93,8 @@ class VelocityController
         syncSemaphore = xSemaphoreCreateBinary();
         if (syncSemaphore != nullptr)
         {
-            xSemaphoreGive(syncSemaphore); // Binary semaphores start at 0 (locked)
+            xSemaphoreGive(syncSemaphore);
+            // Binary semaphore starts empty; give() makes it available
         }
 
         // For Manual mode (calibraition) do not start main pidloop controlling motors
@@ -120,7 +105,6 @@ class VelocityController
                 xTaskCreate(VelocityController::vPidLoopTask, "PidLoop", 512, this, 3, nullptr);
             if (xReturned != pdPASS)
             {
-                //_tele.logPID('L', localL_rps, vLeftRps, 0);
                 LOG_ERR("[CRITICAL] Task Creation Failed! Out of Heap?");
             }
         }
@@ -142,72 +126,78 @@ class VelocityController
             constexpr float dt = SPEED_PID_SAMPLE_TIME_MS / 1000.0f;
 
             // Read target Setpoint
-            float localTargetL_rps = 0.0F;
-            float localTargetR_rps = 0.0F;
-            self->getTargetRps(localTargetL_rps, localTargetR_rps);
+            float left_target_rps = 0.0F;
+            float right_target_rps = 0.0F;
+            self->getTargetRps(left_target_rps, right_target_rps);
 
             // 2. Apply RPS ramps
-            float localL_rps = self->rampLeft.update(localTargetL_rps, dt);
-            float localR_rps = self->rampRight.update(localTargetR_rps, dt);
+            float left_local_rps = left_target_rps;
+            float right_local_rps = right_target_rps;
+            if (self->rampType == Ramp::LINEAR)
+            {
+                left_local_rps = self->rampLeft.updateLinear(left_target_rps, dt);
+                right_local_rps = self->rampRight.updateLinear(right_target_rps, dt);
+            }
 
             // Get current encoder ticks
-            int32_t currLeftTicks = self->leftEnc.getTicks();
-            int32_t currRightTicks = self->rightEnc.getTicks();
+            int32_t current_ticks_l = self->leftEnc.getTicks();
+            int32_t current_ticks_r = self->rightEnc.getTicks();
 
             // ODOMETRY (raw ticks only)
-            int32_t dLeftTicks = currLeftTicks - self->lastLeftTicks;
-            int32_t dRightTicks = currRightTicks - self->lastRightTicks;
-
+            float delta_ticks_l = current_ticks_l - self->lastLeftTicks;
+            float delta_ticks_r = current_ticks_r - self->lastRightTicks;
             // Save current ticks for next run delta
-            self->lastLeftTicks = currLeftTicks;
-            self->lastRightTicks = currRightTicks;
+            self->lastLeftTicks = current_ticks_l;
+            self->lastRightTicks = current_ticks_r;
 
             // --- ODOMETRY
-            float deltaLcm = (float)dLeftTicks * (PI * WHEEL_DIAMETER_CM) / L_TICKS_PER_REV;
-            float deltaRcm = (float)dRightTicks * (PI * WHEEL_DIAMETER_CM) / R_TICKS_PER_REV;
+            float left_delta_cm = (float)delta_ticks_l * (PI * WHEEL_DIAMETER_CM) / L_TICKS_PER_REV;
+            float right_delta_cm =
+                (float)delta_ticks_r * (PI * WHEEL_DIAMETER_CM) / R_TICKS_PER_REV;
 
-            float dDist = (deltaRcm + deltaLcm) * 0.5f;
-            float dTheta = (deltaRcm - deltaLcm) / TRACK_WIDTH_CM;
+            float dDist = (right_delta_cm + left_delta_cm) * 0.5f;
+            float dTheta = (right_delta_cm - left_delta_cm) / TRACK_WIDTH_CM;
 
             self->odometry.update(dDist, dTheta);
-            if (self->loopCounter % 5 == 0 && self->telemetry != nullptr)
-            {
-                Pose pose = self->odometry.getPose();
-
-                OdomPayload odom{};
-                odom.loopCntr = self->loopCounter;
-                odom.x = pose.x;
-                odom.y = pose.y;
-                odom.theta = pose.theta;
-
-                self->telemetry->publish(Rtp::RTP_ODOM, odom);
-            }
-            // --- ENd of ODOMETRY
 
             // Feed motors
-            self->leftMotor.update(localL_rps, currLeftTicks, self->loopCounter);
-            self->rightMotor.update(localR_rps, currRightTicks, self->loopCounter);
+            self->leftMotor.update(left_local_rps, delta_ticks_l);
+            self->rightMotor.update(right_local_rps, delta_ticks_r);
 
-            if (self->loopCounter % 5 == 0 && self->telemetry != nullptr)
+            if (self->telemetry != nullptr)
             {
-                ControlLoopPayload payload{};
-                payload.loopCntr = self->loopCounter;
-                payload.setpointL = localTargetL_rps;
-                payload.setpointR = localTargetR_rps;
-                payload.rampSetpointL = localL_rps;
-                payload.rampSsetpointR = localR_rps;
-                payload.deltaLticks = dLeftTicks;
-                payload.deltaRticks = dRightTicks;
+                PidLoopSnapshot snapshot;
+                memset(&snapshot, 0, sizeof(snapshot));
+                snapshot.loop_cntr = self->loopCounter;
 
-                self->telemetry->publish(Rtp::RTP_CTRL, payload);
+                snapshot.left_target_setpoint = left_target_rps;
+                snapshot.left_delta_ticks = delta_ticks_l;
+
+                snapshot.right_target_setpoint = right_target_rps;
+                snapshot.right_delta_ticks = delta_ticks_r;
+
+                self->leftMotor.copyState(snapshot.left);
+                self->rightMotor.copyState(snapshot.right);
+
+                self->telemetry->publish(Rtp::RTP_PID, snapshot);
             }
         }
     }
 
-    // static float ticksToRps(long ticks)
-    // {
-    //     return (float)(ticks * 1000.0f) / (TICKS_PER_REV * SPEED_PID_SAMPLE_TIME_MS);
-    // }
+    void setRampType(uint8_t type)
+    {
+        rampType = type;
+        rampLeft.reset();
+        rampRight.reset();
+    }
+
+    void updatePids(MotorSide motor, float p, float i, float ff, float alpha)
+    {
+        if (motor == MOTOR_SIDE_LEFT)
+            leftMotor.setPid(p, i, ff, alpha);
+        else
+            rightMotor.setPid(p, i, ff, alpha);
+    }
 
     void setRps(float l_rps, float r_rps)
     {
@@ -231,6 +221,22 @@ class VelocityController
         setRps(vL / circ, vR / circ);
     }
 
+    void hardStop()
+    {
+        _setTargetRps(0.0F, 0.0F);
+        leftMotor.driveMotor(0, true);
+        rightMotor.driveMotor(0, true);
+    }
+
+    void resetForPidTest()
+    {
+        rampLeft.reset();
+        rampRight.reset();
+        resetEncoders();
+        leftMotor.resetState();
+        rightMotor.resetState();
+    }
+
     void stopEmergency()
     {
         if (xSemaphoreTake(syncSemaphore, portMAX_DELAY))
@@ -244,6 +250,23 @@ class VelocityController
             rightMotor.driveMotor(0.0f, true);
 
             xSemaphoreGive(syncSemaphore);
+        }
+    }
+
+    void resetMotorState(MotorSide m)
+    {
+        if (m == MOTOR_SIDE_LEFT)
+        {
+            leftMotor.resetState();
+        }
+        else if (m == MOTOR_SIDE_RIGHT)
+        {
+            rightMotor.resetState();
+        }
+        else
+        {
+            leftMotor.resetState();
+            rightMotor.resetState();
         }
     }
 

@@ -21,13 +21,13 @@
 #define ENC_R_PIN_B 8  // IRQ9
 
 // ----- MOTION PROFILING ----
-#define RPS_RAMP_NONE
+// #define RPS_RAMP_NONE
 //  #define RPS_RAMP_LINEAR
 // #define RPS_RAMP_SCURVE
 
-#ifdef RPS_RAMP_LINEAR
-#define RPS_RAMP_MAX_ACCEL 2.0F // rps / s
-#endif
+// #ifdef RPS_RAMP_LINEAR
+#define RPS_RAMP_MAX_ACCEL 0.5F // rps / s
+// #endif
 
 #ifdef RPS_RAMP_SCURVE
 #define RPS_RAMP_MAX_JERK 5.0F  // [rps/s^3] - jak gładko zmienia się przyspieszenie
@@ -40,7 +40,7 @@
 // Uncomment EXACTLY ONE
 
 // #define RUN_MODE_CALIB // Step 1: To check proper motor spinning, find minimal PWM to start
-//    robot moving & to find exact exact encoder ticks per wheel revolution
+//     robot moving & to find exact exact encoder ticks per wheel revolution
 #define RUN_MODE_NORMAL // Step 5: Normal driving
 
 // ==========================================
@@ -57,16 +57,16 @@
 // ==========================================
 
 // PID
-#define SPEED_PID_SAMPLE_TIME_MS 50 // PID Loop sample rate
+#define SPEED_PID_SAMPLE_TIME_MS 5 // PID Loop sample rate
 // Fill in after PID auto-tune
 
-#define L_MOTOR_PID_KP 117.76f
-#define L_MOTOR_PID_KI 121.77f
-#define L_MOTOR_PID_KFF 0.0F // 48.71f
+#define L_MOTOR_PID_KP 8.0f
+#define L_MOTOR_PID_KI 1.2f
+#define L_MOTOR_PID_KFF 52.0F // 48.71f
 
-#define R_MOTOR_PID_KP 157.5f
-#define R_MOTOR_PID_KI 135.75f
-#define R_MOTOR_PID_KFF 0.0F // 54.3f
+#define R_MOTOR_PID_KP 6.0f
+#define R_MOTOR_PID_KI 1.5f
+#define R_MOTOR_PID_KFF 58.0F // 54.3f
 
 #define RPS_ALPHA 0.2f
 //  #define MOTORS_CROSS_COUPLING_GAIN 0.1f
@@ -75,7 +75,7 @@
 //                 LIMITS
 // ==========================================
 #define PWM_FREQ 1000.0f
-#define PWM_MAX_DUTY 95.0f
+#define PWM_MAX_DUTY 90.0f
 #define PWM_MIN_DUTY 30.0f
 
 #define TELEMETRY_QUEUE_SIZE 8
@@ -83,7 +83,7 @@
 // ==========================================
 //                 DEBUG LEVELS
 // ==========================================
-#define CURRENT_DEBUG_LEVEL DEBUG_LEVEL_NONE
+#define CURRENT_DEBUG_LEVEL DEBUG_LEVEL_INFO
 
 // ==========================================
 //                 DEBUG MACROS
@@ -194,8 +194,8 @@
 #error "Multiple RUN_MODE_* selected. Define exactly ONE run mode."
 #endif
 
-#if (defined(RPS_RAMP_NONE) + defined(RPS_RAMP_LINEAR) + defined(RPS_RAMP_SCURVE)) != 1
-#error "Exactly ONE RPS_RAMP_* must be defined"
-#endif
+// #if (defined(RPS_RAMP_NONE) + defined(RPS_RAMP_LINEAR) + defined(RPS_RAMP_SCURVE)) != 1
+// #error "Exactly ONE RPS_RAMP_* must be defined"
+// #endif
 
 #endif

@@ -16,15 +16,12 @@ class RpsRamp
         accel = 0.0F;
     }
 
-#ifdef RPS_RAMP_NONE
-    float update(float target, float dt) const
+    float updateNone(float target, float dt) const
     {
         return target;
     }
-#endif
 
-#ifdef RPS_RAMP_LINEAR
-    float update(float target, float dt)
+    float updateLinear(float target, float dt)
     {
         float maxStep = RPS_RAMP_MAX_ACCEL * dt;
         float diff = target - current;
@@ -40,7 +37,6 @@ class RpsRamp
 
         return current;
     }
-#endif
 
 #ifdef RPS_RAMP_SCURVE
     float update(float targetVelocity, float dt)

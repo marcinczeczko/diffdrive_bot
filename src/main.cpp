@@ -1,7 +1,7 @@
 
 #include "config/Config.h"
 #include "controller/VelocityController.h"
-#include "task/TestDriveTask.h"
+#include "task/PidTestTask.h"
 #include "tele/RtpTelemetry.h"
 
 #include <Arduino.h>
@@ -11,13 +11,17 @@
 #include "calibrator/CalibModule.h"
 #endif
 
-Rtp::RtpTelemetry telemetry;
+static Rtp::RtpTelemetry telemetry;
 
 #ifdef RUN_MODE_NORMAL
-VelocityController controller(&telemetry, ControllerMode::AUTO);
+static VelocityController controller(&telemetry, ControllerMode::AUTO);
+static PidTestTask pidTest(&controller);
+PidTestTask* g_pidTestTask = &pidTest;
+
 #else
-VelocityController controller(&telemetry, ControllerMode::MANUAL);
-CalibModule calib(&controller);
+static VelocityController controller(&telemetry, ControllerMode::MANUAL);
+static CalibModule calib(&controller);
+PidTestTask* g_pidTestTask = nullptr;
 #endif
 
 void setup()
@@ -27,15 +31,15 @@ void setup()
     {
         ; // Wait for R4 Serial
     }
+    telemetry.setController(&controller);
     telemetry.begin();
-
     // =============================
     // 3. NORMAL OPERATION
     // =============================
 #ifdef RUN_MODE_NORMAL
 
+    pidTest.begin();
     controller.begin();
-    xTaskCreate(TestDriveTask::startTask, "Move", 512, &controller, 1, nullptr);
     vTaskStartScheduler();
 
 #endif

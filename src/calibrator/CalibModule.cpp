@@ -245,14 +245,14 @@ void CalibModule::beginDataCollector(MotorSide motorSide, TuneCollectorSpeed spe
             ;
     }
 
-    BaseType_t t1 = xTaskCreate(CalibModule::taskCollectData, "Data", 256, this, 3, &testHandle);
+    BaseType_t t1 = xTaskCreate(CalibModule::taskCollectData, "Data", 128, this, 3, &testHandle);
     if (t1 != pdPASS)
     {
         Serial.println("FATAL: TaskCollectData creation failed! Check Stack Sizes.");
         while (1)
             ;
     }
-    BaseType_t t2 = xTaskCreate(CalibModule::taskTelemetryData, "Tele", 256, this, 1, &teleHandle);
+    BaseType_t t2 = xTaskCreate(CalibModule::taskTelemetryData, "Tele", 128, this, 1, &teleHandle);
     if (t2 != pdPASS)
     {
         Serial.println("FATAL: vTelemetryTask creation failed! Check Stack Sizes.");

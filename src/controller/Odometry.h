@@ -7,23 +7,13 @@
 #include <Arduino_FreeRTOS.h>
 #include <math.h>
 
-#pragma pack(push, 1)
-struct OdomPayload
-{
-    uint32_t loopCntr;
-    float x;
-    float y;
-    float theta;
-};
-#pragma pack(pop)
-
-static_assert(sizeof(OdomPayload) == 16, "OdomPayload ABI mismatch");
-
 struct Pose
 {
     float x;     // cm
     float y;     // cm
     float theta; // radians
+    float v;     // cm/s
+    float omega; // rad/s
 };
 
 class Odometry
@@ -47,17 +37,21 @@ class Odometry
         }
     }
 
-    void update(float dDist, float dTheta)
+    void update(float dDist, float dTheta, float dt)
     {
         if (xSemaphoreTake(syncSemaphore, 0))
         { // Nie blokujemy taska PID, jeśli zajęty
             // Obliczamy kąt w połowie drogi
-            float midTheta = pose.theta + (dTheta / 2.0F);
+            float midTheta = pose.theta + (dTheta * 0.5F);
 
             // Aktualizacja pozycji przy użyciu średniego kąta
             pose.x += dDist * cos(midTheta);
             pose.y += dDist * sin(midTheta);
             pose.theta += dTheta;
+
+            // Velocities
+            pose.v = dDist / dt;
+            pose.omega = dTheta / dt;
 
             // Normalize degree -PI to PI
             while (pose.theta > PI)
@@ -68,7 +62,6 @@ class Odometry
             {
                 pose.theta += 2.0F * PI;
             }
-            // LOG_DATA_3("ODO", "X,Y,THETA", pose.x, pose.x, pose.theta);
             xSemaphoreGive(syncSemaphore);
         }
     }

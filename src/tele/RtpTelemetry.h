@@ -13,7 +13,7 @@ constexpr uint16_t kMagic = 0xAA55;
 constexpr uint8_t kMagic_0 = 0xAA;
 constexpr uint8_t kMagic_1 = 0x55;
 constexpr uint8_t kVersion = 0x01;
-constexpr std::size_t kMaxPayload = 128; // TBD
+constexpr std::size_t kMaxPayload = 160; // TBD
 
 using RtpType = uint8_t;
 

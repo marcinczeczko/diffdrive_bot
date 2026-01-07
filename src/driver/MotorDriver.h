@@ -27,7 +27,15 @@ class MotorDriver
 
     float kP;
     float kI;
-    float kFF;
+    float k_aw; // anti-windup back-calculation gain
+
+    bool use_pi = true;
+
+    // Feed forward
+    float k1; // static friction (Coulomb)
+    float k2; // linear velocity gain
+    float k3; // high-speed nonlinearity
+
     float rpsAlpha = 0.0F;
 
     PidSideState state{};
@@ -36,9 +44,9 @@ class MotorDriver
 
   public:
     MotorDriver(int pwmPin, int dirPin, uint32_t ticksPerRev, MotorSide side, float kp, float ki,
-                float kff, Rtp::RtpTelemetry* tele)
+                float k1, float k2, float k3, float k_aw, Rtp::RtpTelemetry* tele)
         : pwm(pwmPin), ticksPerRev(ticksPerRev), motorSide(side), dirPin(dirPin), kP(kp), kI(ki),
-          kFF(kff), telemetry(tele), rpsAlpha(RPS_ALPHA)
+          k1(k1), k2(k2), k3(k3), k_aw(k_aw), telemetry(tele), rpsAlpha(RPS_ALPHA)
     {
         resetState();
     }
@@ -59,6 +67,12 @@ class MotorDriver
         state.i_term = 0.0f;
         state.raw_output = 0.0f;
         state.output = 0.0f;
+        state.u_ff = 0.0f;
+        state.u_pi = 0.0f;
+        state.u_virtual = 0.0f;
+        state.u_sat = 0.0f;
+        state.pwm_cmd = 0.0f;
+        state.aw_term = 0.0f;
     }
 
     void begin()
@@ -89,18 +103,7 @@ class MotorDriver
         // =================================================
         if (deltaTicks == 0 && fabsf(targetRps) < 0.001f)
         {
-            state.measurement = 0.0f;
-            state.measurement_raw = 0.0f;
-            state.error = 0.0f;
-
-            state.p_term = 0.0f;
-            state.i_term = 0.0f;
-            state.raw_output = 0.0f;
-            state.output = 0.0f;
-
-            // integrator zerowany TYLKO w pełnym postoju
-            state.integral = 0.0f;
-
+            resetState();
             digitalWrite(dirPin, LOW);
             pwm.pulse_perc(0.0f);
 
@@ -127,7 +130,7 @@ class MotorDriver
         state.error = targetRps - state.measurement;
 
         // =================================================
-        // 3. Proportional and Integral terms
+        // 3. PI observer (ALWAYS computed)
         // =================================================
         // P-term: immediate response to velocity error
         state.p_term = kP * state.error;
@@ -136,52 +139,60 @@ class MotorDriver
         // load changes and model inaccuracies
         state.i_term = kI * state.integral;
 
-        // =================================================
-        // 4. Feed-forward term
-        // =================================================
-        // Open-loop approximation of required PWM for a given RPS
-        // Reduces the burden on the PI controller
-        float ffEffort = targetRps * kFF;
+        state.u_pi = state.p_term + state.i_term;
 
         // =================================================
-        // 5. Controller output summation
+        // 4. Feed-forward model (k1, k2, k3)
         // =================================================
-        // Raw controller output before actuator limits
-        state.raw_output = ffEffort + state.p_term + state.i_term;
+        float v_ref = targetRps;
+
+        state.u_ff = 0.0f;
+        if (fabsf(v_ref) > 1e-4f)
+        {
+            float sign = copysignf(1.0f, v_ref);
+            float abs_vref = fabsf(v_ref);
+
+            state.u_ff = k1 * sign + k2 * v_ref + k3 * v_ref * abs_vref;
+        }
+
+        // pi observer
+        state.u_pi = state.p_term + state.i_term;
+        state.u_virtual = state.u_ff + state.u_pi;
 
         // =================================================
-        // 6. Actuator saturation
+        // 5. Anti-windup: back-calculation (FULL controller)
         // =================================================
-        // Clamp to physical PWM limits
-        state.output = constrain(state.raw_output, -PWM_MAX_DUTY, PWM_MAX_DUTY);
+        state.u_sat = constrain(state.u_virtual, -PWM_MAX_DUTY, PWM_MAX_DUTY);
 
-        // =================================================
-        // 7. Integrator update & anti-windup
-        // =================================================
-        // Reset integrator only when both:
-        //  - target speed is zero
-        //  - measured speed is zero
-        // This prevents stored torque and motor "twitching" at standstill
-        if (fabsf(targetRps) < 0.01f && fabsf(state.measurement) < 0.01f)
+        // Back-calculation term: pushes integrator to feasible value
+        state.aw_term = k_aw * (state.u_sat - state.u_virtual);
+
+        // Standstill reset
+        if (fabsf(targetRps) < 0.01f)
         {
             state.integral = 0.0f;
         }
-        // Integrate error only when actuator is NOT saturated
-        // Prevents integrator windup under hard limits
-        else if (state.raw_output == state.output)
+        else
         {
-            state.integral += state.error * dt;
+            // Integrator update ALWAYS active
+            state.integral += (state.error + state.aw_term) * dt;
         }
 
-        // Hard safety clamp for numerical robustness
+        // safety clamp
         const float I_LIMIT = PWM_MAX_DUTY / max(kI, 0.001f);
         state.integral = constrain(state.integral, -I_LIMIT, I_LIMIT);
 
         // =================================================
-        // 8. Actuation
+        // 6. PI gating (ONLY HERE)
+        // =================================================
+        state.raw_output = use_pi ? state.u_virtual : state.u_ff;
+        state.output = constrain(state.raw_output, -PWM_MAX_DUTY, PWM_MAX_DUTY);
+
+        // =================================================
+        // 7. Actuation
         // =================================================
         // Direction is derived from the sign of the output
-        state.pwm_cmd = mapToPwm(state.output);
+        state.pwm_cmd = mapToPwm(state.output, true);
 
         digitalWrite(dirPin, state.pwm_cmd >= 0.0f ? LOW : HIGH);
 
@@ -196,7 +207,7 @@ class MotorDriver
         return alpha * current + (1.0f - alpha) * prev;
     }
 
-    inline float mapToPwm(float u)
+    inline float mapToPwm(float u, float disable)
     {
         if (fabsf(u) < 1e-6f)
             return 0.0f;
@@ -205,20 +216,33 @@ class MotorDriver
         float abs_u = fabsf(u);
 
         // normalize to [0..1]
-        float norm = abs_u / 100.0F;
+        float norm = abs_u / PWM_MAX_DUTY;
 
+        float pwm = 0.0F;
+        if (disable)
+        {
+            pwm = norm * PWM_MAX_DUTY;
+        }
+        else
+        {
+            pwm = PWM_MIN_DUTY + norm * (PWM_MAX_DUTY - PWM_MIN_DUTY);
+        }
         // map to [PWM_MIN .. PWM_MAX]
-        float pwm = PWM_MIN_DUTY + norm * (PWM_MAX_DUTY - PWM_MIN_DUTY);
 
         return sign * pwm;
     }
 
-    void setPid(float p, float i, float ff, float alpha)
+    void setPid(float p, float i, float kff1, float kff2, float kff3, float kaw, float alpha,
+                bool usePi)
     {
         kP = p;
         kI = i;
-        kFF = ff;
+        k1 = kff1;
+        k2 = kff2;
+        k3 = kff3;
+        k_aw = kaw;
         rpsAlpha = alpha;
+        use_pi = usePi;
     }
 
     // New method for raw control

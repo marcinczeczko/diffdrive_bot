@@ -30,7 +30,7 @@ void RtpTelemetry::begin()
         }
     }
 
-    BaseType_t result = xTaskCreate(telemetryTask, "rtpTele", kStackDepth, this, 1, nullptr);
+    BaseType_t result = xTaskCreate(telemetryTask, "rtpTele", 128, this, 1, nullptr);
     if (result != pdPASS)
     {
         LOG_ERR("Not enough memory for telemetry task");
@@ -42,7 +42,7 @@ void RtpTelemetry::begin()
 
     if (m_controller != nullptr)
     {
-        BaseType_t result = xTaskCreate(receiverTask, "rtpRecv", kStackDepth, this, 2, nullptr);
+        BaseType_t result = xTaskCreate(receiverTask, "rtpRecv", 128, this, 2, nullptr);
         if (result != pdPASS)
         {
             LOG_ERR("Not enough memory for telemetry receiver task");
@@ -208,10 +208,14 @@ void RtpTelemetry::receiverTask(void* pvParameters)
                         cmd.motor = cfg->motor;
                         cmd.kp = cfg->kp;
                         cmd.ki = cfg->ki;
-                        cmd.kff = cfg->kff;
+                        cmd.k1 = cfg->k1;
+                        cmd.k2 = cfg->k2;
+                        cmd.k3 = cfg->k3;
+                        cmd.kaw = cfg->kaw;
                         cmd.alpha = cfg->alpha;
                         cmd.testRps = cfg->testRps;
                         cmd.rampType = cfg->rampType;
+                        cmd.usePi = cfg->usePi;
 
                         g_pidTestTask->enqueue(cmd);
                     }
@@ -222,16 +226,24 @@ void RtpTelemetry::receiverTask(void* pvParameters)
                         PidTestAllCommand cmd{};
                         cmd.l_kp = cfg->l_kp;
                         cmd.l_ki = cfg->l_ki;
-                        cmd.l_kff = cfg->l_kff;
+                        cmd.l_k1 = cfg->l_k1;
+                        cmd.l_k2 = cfg->l_k2;
+                        cmd.l_k3 = cfg->l_k3;
+                        cmd.l_kaw = cfg->l_kaw;
                         cmd.l_alpha = cfg->l_alpha;
                         cmd.l_testRps = cfg->l_testRps;
                         cmd.l_rampType = cfg->l_rampType;
+                        cmd.l_usePi = cfg->l_usePi;
                         cmd.r_kp = cfg->r_kp;
                         cmd.r_ki = cfg->r_ki;
-                        cmd.r_kff = cfg->r_kff;
+                        cmd.r_k1 = cfg->r_k1;
+                        cmd.r_k2 = cfg->r_k2;
+                        cmd.r_k3 = cfg->r_k3;
+                        cmd.r_kaw = cfg->r_kaw;
                         cmd.r_alpha = cfg->r_alpha;
                         cmd.r_testRps = cfg->r_testRps;
                         cmd.r_rampType = cfg->r_rampType;
+                        cmd.r_usePi = cfg->r_usePi;
 
                         g_pidTestTask->enqueue(cmd);
                     }

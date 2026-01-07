@@ -83,11 +83,13 @@ class PidTestTask
 
                 if (c.motor == MOTOR_SIDE_LEFT)
                 {
-                    controller->updatePids(MOTOR_SIDE_LEFT, c.kp, c.ki, c.kff, c.alpha);
+                    controller->updatePids(MOTOR_SIDE_LEFT, c.kp, c.ki, c.k1, c.k2, c.k3, c.kaw,
+                                           c.alpha, c.usePi);
                 }
                 else if (c.motor == MOTOR_SIDE_RIGHT)
                 {
-                    controller->updatePids(MOTOR_SIDE_RIGHT, c.kp, c.ki, c.kff, c.alpha);
+                    controller->updatePids(MOTOR_SIDE_RIGHT, c.kp, c.ki, c.k1, c.k2, c.k3, c.kaw,
+                                           c.alpha, c.usePi);
                 }
 
                 vTaskDelay(pdMS_TO_TICKS(150));
@@ -108,10 +110,12 @@ class PidTestTask
                 controller->setRampType(c.l_rampType);
 
                 // Apply PID LEFT
-                controller->updatePids(MOTOR_SIDE_LEFT, c.l_kp, c.l_ki, c.l_kff, c.l_alpha);
+                controller->updatePids(MOTOR_SIDE_LEFT, c.l_kp, c.l_ki, c.l_k1, c.l_k2, c.l_k3,
+                                       c.l_kaw, c.l_alpha, c.l_usePi);
 
                 // Apply PID RIGHT
-                controller->updatePids(MOTOR_SIDE_RIGHT, c.r_kp, c.r_ki, c.r_kff, c.r_alpha);
+                controller->updatePids(MOTOR_SIDE_RIGHT, c.r_kp, c.r_ki, c.r_k1, c.r_k2, c.r_k3,
+                                       c.r_kaw, c.r_alpha, c.r_usePi);
 
                 vTaskDelay(pdMS_TO_TICKS(150));
 

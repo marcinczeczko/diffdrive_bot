@@ -26,7 +26,7 @@
 // #define RPS_RAMP_SCURVE
 
 // #ifdef RPS_RAMP_LINEAR
-#define RPS_RAMP_MAX_ACCEL 0.5F // rps / s
+#define RPS_RAMP_MAX_ACCEL 0.2F // rps / s
 // #endif
 
 #ifdef RPS_RAMP_SCURVE
@@ -52,6 +52,11 @@
 #define WHEEL_DIAMETER_CM 6.6F // Wheel diameter in cm
 #define TRACK_WIDTH_CM 11.0F   // Distance between center of wheels in cm
 
+#define MAX_RPS 2.0f // physical max wheel speed
+#define MAX_CM_PER_S (MAX_RPS * PI * WHEEL_DIAMETER_CM)
+#define MAX_DDIST_CM (MAX_CM_PER_S * (SPEED_PID_SAMPLE_TIME_MS / 1000.0f))
+#define MAX_DTHETA (MAX_DDIST_CM / TRACK_WIDTH_CM)
+
 // ==========================================
 // POST-CALIBRATION CONFIGURATION
 // ==========================================
@@ -62,11 +67,19 @@
 
 #define L_MOTOR_PID_KP 8.0f
 #define L_MOTOR_PID_KI 1.2f
-#define L_MOTOR_PID_KFF 52.0F // 48.71f
+#define L_MOTOR_PID_KAW 1.2f
+// feed forward
+#define L_MOTOR_PID_K1 26.5F
+#define L_MOTOR_PID_K2 8.0F
+#define L_MOTOR_PID_K3 5.0F
 
 #define R_MOTOR_PID_KP 6.0f
 #define R_MOTOR_PID_KI 1.5f
-#define R_MOTOR_PID_KFF 58.0F // 54.3f
+#define R_MOTOR_PID_KAW 1.5f
+// feed forward
+#define R_MOTOR_PID_K1 0.0F
+#define R_MOTOR_PID_K2 0.0F
+#define R_MOTOR_PID_K3 0.0F
 
 #define RPS_ALPHA 0.2f
 //  #define MOTORS_CROSS_COUPLING_GAIN 0.1f
@@ -76,7 +89,7 @@
 // ==========================================
 #define PWM_FREQ 1000.0f
 #define PWM_MAX_DUTY 90.0f
-#define PWM_MIN_DUTY 30.0f
+#define PWM_MIN_DUTY 20.0f
 
 #define TELEMETRY_QUEUE_SIZE 8
 

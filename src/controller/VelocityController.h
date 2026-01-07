@@ -63,9 +63,10 @@ class VelocityController
     VelocityController(Rtp::RtpTelemetry* tele, ControllerMode mode)
         : telemetry(tele), runMode(mode),
           leftMotor(L_PWM, L_DIR, L_TICKS_PER_REV, MOTOR_SIDE_LEFT, L_MOTOR_PID_KP, L_MOTOR_PID_KI,
-                    L_MOTOR_PID_KFF, tele),
+                    L_MOTOR_PID_K1, L_MOTOR_PID_K2, L_MOTOR_PID_K3, L_MOTOR_PID_KAW, tele),
           rightMotor(R_PWM, R_DIR, R_TICKS_PER_REV, MOTOR_SIDE_RIGHT, R_MOTOR_PID_KP,
-                     R_MOTOR_PID_KI, R_MOTOR_PID_KFF, tele),
+                     R_MOTOR_PID_KI, R_MOTOR_PID_K1, R_MOTOR_PID_K2, R_MOTOR_PID_K3,
+                     R_MOTOR_PID_KAW, tele),
           leftEnc(ENC_L_PIN_A, ENC_L_PIN_B), rightEnc(ENC_R_PIN_A, ENC_R_PIN_B)
     {
     }
@@ -158,7 +159,11 @@ class VelocityController
             float dDist = (right_delta_cm + left_delta_cm) * 0.5f;
             float dTheta = (right_delta_cm - left_delta_cm) / TRACK_WIDTH_CM;
 
-            self->odometry.update(dDist, dTheta);
+            // Sanity clamp (encoder glitch protection)
+            dDist = constrain(dDist, -MAX_DDIST_CM, MAX_DDIST_CM);
+            dTheta = constrain(dTheta, -MAX_DTHETA, MAX_DTHETA);
+
+            self->odometry.update(dDist, dTheta, dt);
 
             // Feed motors
             self->leftMotor.update(left_local_rps, delta_ticks_l);
@@ -180,6 +185,19 @@ class VelocityController
                 self->rightMotor.copyState(snapshot.right);
 
                 self->telemetry->publish(Rtp::RTP_PID, snapshot);
+
+                if (self->loopCounter % 10 == 0)
+                {
+                    Pose pose = self->odometry.getPose();
+                    OdomPayload odomPayload;
+                    memset(&odomPayload, 0, sizeof(odomPayload));
+                    odomPayload.loopCntr = self->loopCounter;
+                    odomPayload.x = pose.x;
+                    odomPayload.y = pose.y;
+                    odomPayload.theta = pose.theta;
+
+                    self->telemetry->publish(Rtp::RTP_ODOM, odomPayload);
+                }
             }
         }
     }
@@ -191,12 +209,13 @@ class VelocityController
         rampRight.reset();
     }
 
-    void updatePids(MotorSide motor, float p, float i, float ff, float alpha)
+    void updatePids(MotorSide motor, float p, float i, float kff1, float kff2, float kff3,
+                    float kaw, float alpha, bool usePi)
     {
         if (motor == MOTOR_SIDE_LEFT)
-            leftMotor.setPid(p, i, ff, alpha);
+            leftMotor.setPid(p, i, kff1, kff2, kff3, kaw, alpha, usePi);
         else
-            rightMotor.setPid(p, i, ff, alpha);
+            rightMotor.setPid(p, i, kff1, kff2, kff3, kaw, alpha, usePi);
     }
 
     void setRps(float l_rps, float r_rps)
@@ -219,6 +238,30 @@ class VelocityController
         float circ = PI * WHEEL_DIAMETER_CM;
 
         setRps(vL / circ, vR / circ);
+    }
+
+    void driveTo(float x_cm, float y_cm, float theta_rad)
+    {
+        Pose p = odometry.getPose();
+
+        float dx = x_cm - p.x;
+        float dy = y_cm - p.y;
+
+        float targetTheta = atan2f(dy, dx);
+        float distError = sqrtf(dx * dx + dy * dy);
+        float thetaError = targetTheta - p.theta;
+
+        // Normalize angle
+        while (thetaError > PI)
+            thetaError -= 2.0f * PI;
+        while (thetaError < -PI)
+            thetaError += 2.0f * PI;
+
+        // Simple P controller (starter values)
+        float v = constrain(2.0f * distError, -30.0f, 30.0f);    // cm/s
+        float omega = constrain(4.0f * thetaError, -3.0f, 3.0f); // rad/s
+
+        setTwist(v, omega);
     }
 
     void hardStop()

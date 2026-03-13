@@ -14,12 +14,12 @@ class MoveRobotTask
         auto* vc = (VelocityController*)pvParameters;
         auto& odo = vc->getOdometry();
 
-        vTaskDelay(pdMS_TO_TICKS(2000)); // Czekaj na start
+        vTaskDelay(pdMS_TO_TICKS(2000)); // Wait for start
 
-        // --- MANEWR 1: OBRÓT O 90 STOPNI ---
+        // --- MANEUVER 1: TURN 90 DEGREES ---
         // LOG_INFO("Rotating 90 deg...");
         odo.reset();
-        vc->setTwist(0, 5.0f); // Obrót 1 rad/s
+        vc->setTwist(0, 5.0f); // Rotation 1 rad/s
         while (true)
         {
             Pose p = odo.getPose();
@@ -30,15 +30,15 @@ class MoveRobotTask
         vc->stopEmergency();
         vTaskDelay(pdMS_TO_TICKS(500));
 
-        // --- MANEWR 2: JAZDA 30 CM ---
+        // --- MANEUVER 2: DRIVE 30 CM ---
         // LOG_INFO("Driving 30 cm...");
         odo.reset();
-        vc->setTwist(10.0f, 0); // 10 cm/s prosto
+        vc->setTwist(10.0f, 0); // 10 cm/s straight
 
         while (true)
         {
             Pose p = odo.getPose();
-            // Liczymy dystans euklidesowy od startu (0,0)
+            // Compute Euclidean distance from start (0,0)
             float dist = sqrt(p.x * p.x + p.y * p.y);
             if (dist >= 30.0f)
                 break;

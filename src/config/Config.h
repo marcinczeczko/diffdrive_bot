@@ -30,8 +30,8 @@
 // #endif
 
 #ifdef RPS_RAMP_SCURVE
-#define RPS_RAMP_MAX_JERK 5.0F  // [rps/s^3] - jak gładko zmienia się przyspieszenie
-#define RPS_RAMP_MAX_ACCEL 2.0F // [rps/s^2] - max przyspieszenie
+#define RPS_RAMP_MAX_JERK 5.0F  // [rps/s^3] - how smoothly acceleration changes
+#define RPS_RAMP_MAX_ACCEL 2.0F // [rps/s^2] - max acceleration
 #endif
 
 // ==========================================

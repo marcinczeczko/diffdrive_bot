@@ -17,8 +17,8 @@ void RtpTelemetry::setController(VelocityController* controller)
 // ---- Init ----
 void RtpTelemetry::begin()
 {
-    // Jeśli chcesz używać xQueueOverwrite, kolejka MUSI mieć długość 1.
-    // Jeśli chcesz buforować 8 wiadomości, użyj xQueueSend.
+    // If you want to use xQueueOverwrite, the queue MUST have length 1.
+    // If you want to buffer 8 messages, use xQueueSend.
     m_queue = xQueueCreate(TELEMETRY_QUEUE_SIZE, sizeof(Item));
 
     if (m_queue == nullptr)
@@ -67,7 +67,7 @@ void RtpTelemetry::publishRaw(RtpType type, const void* payload, size_t len)
     item.len = len;
     memcpy(item.payload, payload, len);
 
-    // telemetria → zawsze ostatnia próbka
+    // telemetry -> always the latest sample
     xQueueSend(m_queue, &item, 0);
 }
 
@@ -164,7 +164,7 @@ void RtpTelemetry::receiverTask(void* pvParameters)
                 if (b == kMagic_1)
                 {
                     state = READ_HEADER;
-                    headerIdx = 2; // magic już mamy
+                    headerIdx = 2; // magic already read
                     ((uint8_t*)&header)[0] = kMagic_0;
                     ((uint8_t*)&header)[1] = kMagic_1;
                 }
@@ -176,7 +176,7 @@ void RtpTelemetry::receiverTask(void* pvParameters)
                 ((uint8_t*)&header)[headerIdx++] = b;
                 if (headerIdx == sizeof(RtpHeader))
                 {
-                    // Sprawdź CRC nagłówka (4 pierwsze bajty)
+                    // Check header CRC (first 4 bytes)
                     if (calculateCrc8((uint8_t*)&header, 4) == header.crc)
                     {
                         payloadIdx = 0;
@@ -199,7 +199,7 @@ void RtpTelemetry::receiverTask(void* pvParameters)
             case READ_CRC:
                 if (calculateCrc8(payload, header.len) == b)
                 {
-                    // --- RAMKA POPRAWNA - PROCESUJ ---
+                    // --- VALID FRAME - PROCESS ---
                     if (header.type == RTP_REQ_PID_SIDE && self->m_controller != nullptr)
                     {
                         auto* cfg = (PidSideTestCommand*)payload;
@@ -249,10 +249,10 @@ void RtpTelemetry::receiverTask(void* pvParameters)
                     }
                     else if (header.type == RTP_REQ_CMD)
                     {
-                        // CLI: payload jako string
+                        // CLI: payload as string
                         payload[header.len] = '\0'; // Null terminator
                         LOG_INFO((char*)payload);
-                        // Tutaj możesz dodać prosty parser komend tekstowych
+                        // You can add a simple text command parser here
                     }
                 }
                 state = WAIT_MAGIC_1;
@@ -261,7 +261,7 @@ void RtpTelemetry::receiverTask(void* pvParameters)
         }
         else
         {
-            vTaskDelay(pdMS_TO_TICKS(10)); // Czekaj na dane
+            vTaskDelay(pdMS_TO_TICKS(10)); // Wait for data
         }
     }
 }

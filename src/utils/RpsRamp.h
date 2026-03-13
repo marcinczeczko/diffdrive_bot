@@ -41,8 +41,8 @@ class RpsRamp
 #ifdef RPS_RAMP_SCURVE
     float update(float targetVelocity, float dt)
     {
-        // 1. STREFA MARTWA (Snap-to-Zero)
-        // Jeśli cel to 0 i jesteśmy już bardzo blisko, zatrzymaj natychmiast
+        // 1. DEAD ZONE (Snap-to-Zero)
+        // If the target is 0 and we are already very close, stop immediately
         const float STOP_THRESHOLD = 0.1f; // [rps] ok. 1.2 RPM
         if (targetVelocity == 0.0f && fabs(velocity) < STOP_THRESHOLD)
         {
@@ -51,19 +51,19 @@ class RpsRamp
             return 0.0f;
         }
 
-        // 2. OBLICZANIE POŻĄDANEGO PRZYSPIESZENIA
+        // 2. COMPUTE DESIRED ACCELERATION
         float desiredAccel = (targetVelocity - velocity) / dt;
 
-        // 3. DYNAMICZNY JERK
-        // Jeśli hamujemy do zera, możemy pozwolić na nieco większy Jerk,
-        // aby uniknąć "pływania" wokół zera.
+        // 3. DYNAMIC JERK
+        // If we are braking to zero, we can allow a slightly higher jerk
+        // to avoid "floating" around zero.
         float currentMaxJerk = RPS_RAMP_MAX_JERK;
         if (targetVelocity == 0.0f)
         {
-            currentMaxJerk *= 1.5f; // Agresywniejsze wygaszanie przy stopie
+            currentMaxJerk *= 1.5f; // More aggressive ramp-down on stop
         }
 
-        // 4. OGRANICZENIE ZMIANY PRZYSPIESZENIA (JERK)
+        // 4. LIMIT ACCELERATION CHANGE (JERK)
         float accelDiff = desiredAccel - accel;
         float maxAccelStep = currentMaxJerk * dt;
 
@@ -76,17 +76,17 @@ class RpsRamp
             accel = desiredAccel;
         }
 
-        // 5. OGRANICZENIE MAX PRZYSPIESZENIA
+        // 5. LIMIT MAX ACCELERATION
         if (accel > RPS_RAMP_MAX_ACCEL)
             accel = RPS_RAMP_MAX_ACCEL;
         if (accel < -RPS_RAMP_MAX_ACCEL)
             accel = -RPS_RAMP_MAX_ACCEL;
 
-        // 6. CAŁKOWANIE DO PRĘDKOŚCI
+        // 6. INTEGRATION TO VELOCITY
         float nextVelocity = velocity + (accel * dt);
 
-        // 7. ZABEZPIECZENIE PRZED ZMIANĄ ZNAKU (Oscylacje przy zerze)
-        // Jeśli właśnie mieliśmy się zatrzymać, a znak prędkości ma się odwrócić
+        // 7. GUARD AGAINST SIGN CHANGE (oscillations around zero)
+        // If we were about to stop and the velocity sign is about to flip
         if (targetVelocity == 0.0f && (nextVelocity * velocity < 0))
         {
             velocity = 0.0f;

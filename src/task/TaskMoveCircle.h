@@ -14,7 +14,7 @@ class MoveCircleTask
         auto* vc = (VelocityController*)pvParameters;
         auto& odo = vc->getOdometry();
 
-        vTaskDelay(pdMS_TO_TICKS(2000)); // Czekaj na start po zasilaniu ;)
+        vTaskDelay(pdMS_TO_TICKS(2000)); // Wait for start after power-up ;)
 
         // --- PARAMETRY OKRĘGU ---
         const float targetRadiusCm = 10.0f;
@@ -24,7 +24,7 @@ class MoveCircleTask
         LOG_INFO("Starting circle maneuver (D=1m)...");
         odo.reset();
 
-        // Ustawiamy ruch po łuku
+        // Set arc motion
         vc->setTwist(linearVel, angularVel);
 
         float accumulatedAngle = 0.0f;
@@ -34,7 +34,7 @@ class MoveCircleTask
         {
             Pose p = odo.getPose();
 
-            // Obliczamy zmianę kąta, uwzględniając przeskoki -PI / PI
+            // Compute angle change, accounting for wrap-around at -PI / PI
             float deltaTheta = p.theta - lastTheta;
             if (deltaTheta > PI)
                 deltaTheta -= 2.0f * PI;
@@ -44,13 +44,13 @@ class MoveCircleTask
             accumulatedAngle += deltaTheta;
             lastTheta = p.theta;
 
-            // Logujemy postęp co jakiś czas
+            // Log progress periodically
             if (vc->getLoopCounter() % 20 == 0)
             {
                 LOG_DATA("Progress (deg)", abs(accumulatedAngle) * 180.0f / PI);
             }
 
-            // Warunek końca: pełne okrążenie (2 * PI = 6.28 rad)
+            // End condition: full circle (2 * PI = 6.28 rad)
             if (abs(accumulatedAngle) >= 2.0f * PI)
             {
                 break;

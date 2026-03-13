@@ -40,11 +40,11 @@ class Odometry
     void update(float dDist, float dTheta, float dt)
     {
         if (xSemaphoreTake(syncSemaphore, 0))
-        { // Nie blokujemy taska PID, jeśli zajęty
-            // Obliczamy kąt w połowie drogi
+        { // Do not block the PID task if busy
+            // Compute angle at the halfway point
             float midTheta = pose.theta + (dTheta * 0.5F);
 
-            // Aktualizacja pozycji przy użyciu średniego kąta
+            // Update position using the mean angle
             pose.x += dDist * cos(midTheta);
             pose.y += dDist * sin(midTheta);
             pose.theta += dTheta;

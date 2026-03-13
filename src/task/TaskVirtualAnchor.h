@@ -14,52 +14,52 @@ class VirtualAnchorTask
         auto* vc = (VelocityController*)pvParameters;
         auto& odo = vc->getOdometry();
 
-        // 1. "Rzucamy kotwicę" w obecnym miejscu
+        // 1. "Drop the anchor" at the current position
         Pose anchor = odo.getPose();
         LOG_INFO("Anchor set! Try to move me.");
 
-        // Parametry "sprężyny" (P-Controller)
-        const float Kp_lin = 1.5f;   // Siła powrotu liniowego
-        const float Kp_ang = 2.0f;   // Siła powrotu obrotowego
-        const float MAX_V = 15.0f;   // Max prędkość powrotu [cm/s]
-        const float MAX_W = 2.0f;    // Max prędkość obrotu [rad/s]
-        const float DEADZONE = 0.5f; // Tolerancja 0.5 cm
+        // "Spring" parameters (P-Controller)
+        const float Kp_lin = 1.5f;   // Linear return force
+        const float Kp_ang = 2.0f;   // Angular return force
+        const float MAX_V = 15.0f;   // Max return speed [cm/s]
+        const float MAX_W = 2.0f;    // Max angular speed [rad/s]
+        const float DEADZONE = 0.5f; // 0.5 cm tolerance
 
         for (;;)
         {
             Pose current = odo.getPose();
 
-            // 2. Obliczamy błędy pozycji
+            // 2. Compute position errors
             float errorX = anchor.x - current.x;
             float errorY = anchor.y - current.y;
             float errorTheta = anchor.theta - current.theta;
 
-            // Normalizacja błędu kąta do zakresu -PI..PI
+            // Normalize angle error to -PI..PI
             while (errorTheta > PI)
                 errorTheta -= 2.0f * PI;
             while (errorTheta < -PI)
                 errorTheta += 2.0f * PI;
 
-            // 3. Obliczamy dystans do punktu zakotwiczenia
+            // 3. Compute distance to the anchor point
             float distance = sqrt(errorX * errorX + errorY * errorY);
 
             float v = 0;
             float w = 0;
 
-            // 4. Logika powrotu (uproszczona - robot dąży do X,Y i Theta niezależnie)
+            // 4. Return logic (simplified - robot drives toward X, Y, and Theta independently)
             if (distance > DEADZONE || abs(errorTheta) > 0.05f)
             {
 
-                // Prędkość liniowa (proporcjonalna do błędu)
-                // Uproszczenie: robot jedzie przód/tył bazując na errorX w swoim układzie
-                // Dla pełnego 2D należałoby obrócić wektor błędu do układu robota
+                // Linear velocity (proportional to error)
+                // Simplification: robot moves forward/back based on errorX in its own frame
+                // For full 2D, rotate the error vector into the robot frame
                 float localErrorX = errorX * cos(current.theta) + errorY * sin(current.theta);
                 v = localErrorX * Kp_lin;
 
-                // Prędkość kątowa
+                // Angular velocity
                 w = errorTheta * Kp_ang;
 
-                // 5. Ograniczenia prędkości (Saturacja)
+                // 5. Speed limits (saturation)
                 if (v > MAX_V)
                     v = MAX_V;
                 if (v < -MAX_V)
@@ -73,11 +73,11 @@ class VirtualAnchorTask
             }
             else
             {
-                // Jesteśmy w domu - luzujemy silniki
+                // We are home - release the motors
                 vc->setTwist(0, 0);
             }
 
-            vTaskDelay(pdMS_TO_TICKS(50)); // Sprawdzaj 20 razy na sekundę
+            vTaskDelay(pdMS_TO_TICKS(50)); // Check 20 times per second
         }
     }
 };

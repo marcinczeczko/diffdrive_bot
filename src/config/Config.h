@@ -13,8 +13,8 @@
 #define R_DIR 7
 
 // Left Motor Encoder
-#define ENC_L_PIN_A 2 // IRQ1
-#define ENC_L_PIN_B 3 // IRQ0
+#define ENC_L_PIN_A 2 
+#define ENC_L_PIN_B 3
 
 // Right Motor Encoder
 #define ENC_R_PIN_A 11 // IRQ4
@@ -69,17 +69,20 @@
 #define L_MOTOR_PID_KI 1.2f
 #define L_MOTOR_PID_KAW 1.2f
 // feed forward
-#define L_MOTOR_PID_K1 26.5F
-#define L_MOTOR_PID_K2 8.0F
-#define L_MOTOR_PID_K3 5.0F
+#define L_MOTOR_PID_K1 29.0F
+#define L_MOTOR_PID_K2 8.5F
+#define L_MOTOR_PID_K3 4.5F
 
 #define R_MOTOR_PID_KP 6.0f
 #define R_MOTOR_PID_KI 1.5f
 #define R_MOTOR_PID_KAW 1.5f
 // feed forward
-#define R_MOTOR_PID_K1 0.0F
-#define R_MOTOR_PID_K2 0.0F
-#define R_MOTOR_PID_K3 0.0F
+#define R_MOTOR_PID_K1 32.0F
+#define R_MOTOR_PID_K2 8.0F
+#define R_MOTOR_PID_K3 6.7F
+
+#define MOTOR_MIN_RPS 0.5F
+#define MOTOR_MAX_RPS 2.0F
 
 #define RPS_ALPHA 0.2f
 //  #define MOTORS_CROSS_COUPLING_GAIN 0.1f

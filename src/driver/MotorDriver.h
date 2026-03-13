@@ -192,44 +192,15 @@ class MotorDriver
         // 7. Actuation
         // =================================================
         // Direction is derived from the sign of the output
-        state.pwm_cmd = mapToPwm(state.output, true);
-
+        state.pwm_cmd = constrain(state.output, -PWM_MAX_DUTY, PWM_MAX_DUTY);
         digitalWrite(dirPin, state.pwm_cmd >= 0.0f ? LOW : HIGH);
 
-        // Apply deadband as the very last stage (actuator domain)
-        // This compensates for motor static friction without
-        // interfering with PI dynamics
         pwm.pulse_perc(fabsf(state.pwm_cmd));
     }
 
     inline float alphaFilter(float prev, float current, float alpha)
     {
         return alpha * current + (1.0f - alpha) * prev;
-    }
-
-    inline float mapToPwm(float u, float disable)
-    {
-        if (fabsf(u) < 1e-6f)
-            return 0.0f;
-
-        float sign = copysignf(1.0f, u);
-        float abs_u = fabsf(u);
-
-        // normalize to [0..1]
-        float norm = abs_u / PWM_MAX_DUTY;
-
-        float pwm = 0.0F;
-        if (disable)
-        {
-            pwm = norm * PWM_MAX_DUTY;
-        }
-        else
-        {
-            pwm = PWM_MIN_DUTY + norm * (PWM_MAX_DUTY - PWM_MIN_DUTY);
-        }
-        // map to [PWM_MIN .. PWM_MAX]
-
-        return sign * pwm;
     }
 
     void setPid(float p, float i, float kff1, float kff2, float kff3, float kaw, float alpha,
